@@ -1123,7 +1123,6 @@ FW_VERSIONS = {
   CAR.HYUNDAI_IONIQ_9: {
     (Ecu.fwdRadar, 0x7d0, None): [
       b'\xf1\x00MEev RDR -----      1.00 1.00 99110-GO000         ',
-      b'\xf1\x8b %\x08\x07',
     ],
     (Ecu.fwdCamera, 0x7c4, None): [
       b'\xf1\x00ME  MFC  AT KOR LHD 1.00 1.01 99211-GO000 250103',
