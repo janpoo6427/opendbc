@@ -33,7 +33,7 @@ class CarControllerParams:
     ([], []),
     MAX_LATERAL_ACCEL=(ISO_LATERAL_ACCEL + (ACCELERATION_DUE_TO_GRAVITY * AVERAGE_ROAD_ROLL)),  # ~3.6 m/s^2
     MAX_LATERAL_JERK=(3.0 + (ACCELERATION_DUE_TO_GRAVITY * AVERAGE_ROAD_ROLL)),  # ~3.6 m/s^3,
-    MAX_ANGLE_RATE=5  # comfort rate limit for angle commands, in degrees per frame.
+    MAX_ANGLE_RATE=3  # comfort rate limit for angle commands, in degrees per frame.
   )
 
   # Torque control parameters:
@@ -62,8 +62,13 @@ class CarControllerParams:
 
   # More torque optimization
   # The torque is calculated based on the curvature of the road and the speed of the car and it's a percentage of the maximum torque.
-  SMOOTHING_ANGLE_VEGO_MATRIX = [0, 8.5, 11, 13.8, 22.22]
-  SMOOTHING_ANGLE_ALPHA_MATRIX = [0.05, 0.1, 0.3, 0.6, 1]
+  #SMOOTHING_ANGLE_VEGO_MATRIX = [0, 8.5, 11, 13.8, 22.22]
+  #SMOOTHING_ANGLE_ALPHA_MATRIX = [0.05, 0.1, 0.3, 0.6, 1]
+
+  # for IONIQ_9 test
+  SMOOTHING_ANGLE_VEGO_MATRIX = [0, 5, 8.5, 11, 13.8, 22.22]  # 저속 구간 추가
+  SMOOTHING_ANGLE_ALPHA_MATRIX = [0.02, 0.05, 0.1, 0.3, 0.6, 1]  # 저속 알파값 감소
+
   SMOOTHING_ANGLE_MAX_VEGO = SMOOTHING_ANGLE_VEGO_MATRIX[-1]
 
   def __init__(self, CP):
@@ -85,6 +90,10 @@ class CarControllerParams:
 
     if CP.flags & HyundaiFlags.CANFD_ANGLE_STEERING:
        self.STEER_THRESHOLD = 175
+       # for IONIQ_9 test
+       if CP.carFingerprint == CAR.HYUNDAI_IONIQ_9:
+           self.STEER_DELTA_UP = 2  # 더 부드러운 상승
+           self.STEER_DELTA_DOWN = 2  # 더 부드러운 하강
 
     # To determine the limit for your car, find the maximum value that the stock LKAS will request.
     # If the max stock LKAS request is <384, add your car to this list.
