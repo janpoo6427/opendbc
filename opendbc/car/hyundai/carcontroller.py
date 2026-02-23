@@ -53,17 +53,17 @@ def calculate_angle_torque_reduction_gain(params, CS, apply_torque_last, target_
 
   driver_torque = abs(CS.out.steeringTorque)
   # # 방법1 :⭐ 저속에서 더 천천히 변화 (떨림 방지)
-  # if CS.out.vEgoRaw < 8:  # 29km/h 이하
-  #   alpha = np.interp(driver_torque, [params.STEER_THRESHOLD * .8, params.STEER_THRESHOLD * 2], 
-  #                     [0.01, 0.05])  # 느린 변화
-  # else:
+  if CS.out.vEgoRaw < 8:  # 29km/h 이하
+    alpha = np.interp(driver_torque, [params.STEER_THRESHOLD * .8, params.STEER_THRESHOLD * 2], 
+                      [0.01, 0.05])  # 느린 변화
+  else:
+    alpha = np.interp(driver_torque, [params.STEER_THRESHOLD * .8, params.STEER_THRESHOLD * 2], [0.02, 0.1])
 
   # 방법2: ⭐ 토크 변화에 데드존 추가 (미세 변화 무시)
-  torque_diff = abs(target_gain - apply_torque_last)
-  if torque_diff < 0.02:  # 2% 이하 변화 무시
-      target_gain = apply_torque_last
+  # torque_diff = abs(target_gain - apply_torque_last)
+  # if torque_diff < 0.02:  # 2% 이하 변화 무시
+  #     target_gain = apply_torque_last
   
-  alpha = np.interp(driver_torque, [params.STEER_THRESHOLD * .8, params.STEER_THRESHOLD * 2], [0.02, 0.1])
 
   if CS.out.steeringPressed:
     scale = 100
