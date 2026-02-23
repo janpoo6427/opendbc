@@ -52,6 +52,17 @@ def calculate_angle_torque_reduction_gain(params, CS, apply_torque_last, target_
   target_gain = max(target_torque_reduction_gain, params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN)
 
   driver_torque = abs(CS.out.steeringTorque)
+  # # 방법1 :⭐ 저속에서 더 천천히 변화 (떨림 방지)
+  # if CS.out.vEgoRaw < 8:  # 29km/h 이하
+  #   alpha = np.interp(driver_torque, [params.STEER_THRESHOLD * .8, params.STEER_THRESHOLD * 2], 
+  #                     [0.01, 0.05])  # 느린 변화
+  # else:
+
+  # 방법2: ⭐ 토크 변화에 데드존 추가 (미세 변화 무시)
+  torque_diff = abs(target_gain - apply_torque_last)
+  if torque_diff < 0.02:  # 2% 이하 변화 무시
+      target_gain = apply_torque_last
+  
   alpha = np.interp(driver_torque, [params.STEER_THRESHOLD * .8, params.STEER_THRESHOLD * 2], [0.02, 0.1])
 
   if CS.out.steeringPressed:
@@ -87,6 +98,23 @@ def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: floa
   Returns:
     float: Smoothed steering angle.
   """
+   # 각도 변화량 계산
+  angle_diff = apply_angle - apply_angle_last
+  
+  # 속도별 데드존 설정 (저속일수록 큰 데드존)
+  if v_ego_raw < 5:  # 0~18km/h
+    deadzone = 0.3  # ⭐ 0.3도 이하 변화는 무시 (떨림 방지)
+  elif v_ego_raw < 10:  # 18~36km/h
+    deadzone = 0.2
+  elif v_ego_raw < 15:  # 36~54km/h
+    deadzone = 0.15
+  else:  # 54km/h 이상
+    deadzone = 0.1
+  
+  # 데드존 이내면 이전 각도 유지 (떨림 제거)
+  if abs(angle_diff) < deadzone:
+    return apply_angle_last
+
   if abs(apply_angle - apply_angle_last) > 0.1:
     adjusted_alpha = np.interp(v_ego_raw, CarControllerParams.SMOOTHING_ANGLE_VEGO_MATRIX, CarControllerParams.SMOOTHING_ANGLE_ALPHA_MATRIX)
     adjusted_alpha_limited = float(min(float(adjusted_alpha), 1.))  # Limit the smoothing factor to 1 if adjusted_alpha is greater than 1
