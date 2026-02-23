@@ -67,7 +67,7 @@ class CarControllerParams:
 
   # for IONIQ_9 test
   SMOOTHING_ANGLE_VEGO_MATRIX = [0, 3, 6, 10, 15, 20, 25]
-  SMOOTHING_ANGLE_ALPHA_MATRIX = [0.02, 0.05, 0.1, 0.3, 0.6, 1]  # 저속 알파값 감소
+  SMOOTHING_ANGLE_ALPHA_MATRIX = [0.03, 0.05, 0.1, 0.25, 0.5, 0.8, 1]  # 저속 알파값 감소
 
   SMOOTHING_ANGLE_MAX_VEGO = SMOOTHING_ANGLE_VEGO_MATRIX[-1]
 
