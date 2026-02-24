@@ -47,15 +47,25 @@ def get_baseline_safety_cp():
   return CarInterface.get_non_essential_params(ANGLE_SAFETY_BASELINE_MODEL)
 
 
-def calculate_angle_torque_reduction_gain(params, CS, apply_torque_last, target_torque_reduction_gain):
+def calculate_angle_torque_reduction_gain(params, CS, apply_torque_last, target_torque_reduction_gain, v_ego_raw=0):
   """ Calculate the angle torque reduction gain based on the current steering state. """
   target_gain = max(target_torque_reduction_gain, params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN)
 
   driver_torque = abs(CS.out.steeringTorque)
-  alpha = np.interp(driver_torque, [params.STEER_THRESHOLD * .8, params.STEER_THRESHOLD * 2], [0.02, 0.1])
+
+   # [수정] 저속에서는 더 부드러운 alpha 사용 (토크 변화율 감소)
+  if v_ego_raw < 8.33:  # 30km/h 이하
+    alpha = np.interp(driver_torque, 
+                     [params.STEER_THRESHOLD * .8, params.STEER_THRESHOLD * 2], 
+                     [0.008, 0.04])  # 기존 [0.02, 0.1]의 40% 수준
+  else:
+    alpha = np.interp(driver_torque, 
+                     [params.STEER_THRESHOLD * .8, params.STEER_THRESHOLD * 2], 
+                     [0.02, 0.1])
 
   if CS.out.steeringPressed:
-    scale = 100
+    # [수정] 저속에서는 더 완만한 지수 감소
+    scale = 200 if v_ego_raw < 8.33 else 100  # scale 증가로 완만한 변화
     clamped_torque_gain = max(apply_torque_last, params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN)
     target_gain = params.ANGLE_MIN_TORQUE_REDUCTION_GAIN + (clamped_torque_gain - params.ANGLE_MIN_TORQUE_REDUCTION_GAIN) \
                   * math.exp(-(driver_torque - params.STEER_THRESHOLD) / scale)
@@ -87,10 +97,20 @@ def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: floa
   Returns:
     float: Smoothed steering angle.
   """
-  if abs(apply_angle - apply_angle_last) > 0.1:
+  # [핵심 수정] 저속에서는 변화량과 관계없이 무조건 스무딩 적용
+
+  if abs(apply_angle - apply_angle_last) > 0.1 or v_ego_raw < 8.33:   # 30km/h 이하
     adjusted_alpha = np.interp(v_ego_raw, CarControllerParams.SMOOTHING_ANGLE_VEGO_MATRIX, CarControllerParams.SMOOTHING_ANGLE_ALPHA_MATRIX)
     adjusted_alpha_limited = float(min(float(adjusted_alpha), 1.))  # Limit the smoothing factor to 1 if adjusted_alpha is greater than 1
+
+    # [추가] 저속에서 스무딩 강도 강화
+    if v_ego_raw < 2.78:  # 10km/h 이하
+      adjusted_alpha_limited = min(adjusted_alpha_limited, 0.08)  # 매우 부드럽게
+    elif v_ego_raw < 5.56:  # 20km/h 이하  
+      adjusted_alpha_limited = min(adjusted_alpha_limited, 0.15)  # 부드럽게
+    
     return (apply_angle * adjusted_alpha_limited) + (apply_angle_last * (1 - adjusted_alpha_limited))
+
   return apply_angle
 
 
@@ -177,12 +197,12 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
       self.angle_enable_smoothing_factor = self._params.get_bool("EnableHkgTuningAngleSmoothingFactor")
 
     self.angle_torque_reduction_gain_controller = TorqueReductionGainController(
-      angle_threshold=.3,
-      debounce_time=.1,
+      angle_threshold=0.8,  # 0.3 → 0.8: 저속에서 더 관대하게
+      debounce_time=0.25,   # 0.1 → 0.25: 더 긴 안정화 시간  
       min_gain=self.params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN,
       max_gain=self.params.ANGLE_MAX_TORQUE_REDUCTION_GAIN,
-      ramp_up_rate=self.params.ANGLE_RAMP_UP_TORQUE_REDUCTION_RATE,
-      ramp_down_rate=self.params.ANGLE_RAMP_DOWN_TORQUE_REDUCTION_RATE
+      ramp_up_rate=self.params.ANGLE_RAMP_UP_TORQUE_REDUCTION_RATE * 0.6,    # 40% 감속
+      ramp_down_rate=self.params.ANGLE_RAMP_DOWN_TORQUE_REDUCTION_RATE * 0.6  # 40% 감속
     )
 
   def update(self, CC, CC_SP, CS, now_nanos):
@@ -208,6 +228,16 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
       v_ego_raw = CS.out.vEgoRaw
       desired_angle = np.clip(actuators.steeringAngleDeg, -self.params.ANGLE_LIMITS.STEER_ANGLE_MAX, self.params.ANGLE_LIMITS.STEER_ANGLE_MAX)
 
+      # ===== 추가: IONIQ 9 저속 안정화 Rate Limiter =====
+      if v_ego_raw < 6.94:  # 25km/h 미만에서 작동
+        # 프레임당 최대 변화량 제한 (50Hz 기준)
+        MAX_DEG_PER_FRAME = 0.25  # 소음 심하면 0.15로 감소, 반응 느리면 0.35로 증가
+        
+        angle_delta = desired_angle - self.apply_angle_last
+        if abs(angle_delta) > MAX_DEG_PER_FRAME:
+          desired_angle = self.apply_angle_last + (MAX_DEG_PER_FRAME * np.sign(angle_delta))
+      # ===== Rate Limiter 끝 =====
+
       if self.angle_enable_smoothing_factor and abs(v_ego_raw) < CarControllerParams.SMOOTHING_ANGLE_MAX_VEGO:
         desired_angle = sp_smooth_angle(v_ego_raw, desired_angle, self.apply_angle_last)
 
@@ -226,7 +256,7 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
       )
 
       # This method ensures that the torque gives up when overriding and controls the ramp rate to avoid feeling jittery.
-      apply_torque = calculate_angle_torque_reduction_gain(self.params, CS, self.apply_torque_last, target_torque_reduction_gain)
+      apply_torque = calculate_angle_torque_reduction_gain(self.params, CS, self.apply_torque_last, target_torque_reduction_gain, v_ego_raw)
 
       # apply_steer_req is True when we are actively attempting to steer and under the angle limit. Otherwise the user is overriding.
       apply_steer_req = CC.latActive and apply_torque != 0
