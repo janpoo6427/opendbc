@@ -44,11 +44,11 @@ ANGLE_SAFETY_BASELINE_MODEL = "KIA_SPORTAGE_HEV_2026"
 # ===== IONIQ 9 완전 연속 보간 제어 시스템 =====
 
 # 극미세 노이즈 물리적 차단 (센서 노이즈 수준)
-NOISE_THRESHOLD = 0.05
+NOISE_THRESHOLD = 0.1
 
 # 조향각 변화량 기반 부스트 곡선 (소음 억제 + 반응성 향상)
 ANGLE_DIFF_POINTS = np.array([0.0,   0.08,  0.20,  0.50,  1.5], dtype=float)
-BOOST_FACTORS =     np.array([0.15,  0.25,  1.0,   2.0,   2.5], dtype=float)
+BOOST_FACTORS =     np.array([0.05,  0.15,  1.0,   2.0,   2.5], dtype=float)
 
 # 운전자 토크 기반 연속 제어 곡선 (STEER_THRESHOLD 배수로 정의)
 TORQUE_MULTIPLIERS = np.array([0.0,  0.5,  1.0,  2.5,  4.0], dtype=float)
