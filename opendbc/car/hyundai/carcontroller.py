@@ -41,38 +41,56 @@ MAX_ANGLE_CONSECUTIVE_FRAMES = 2
 MAX_ANGLE_RATE = 5
 ANGLE_SAFETY_BASELINE_MODEL = "KIA_SPORTAGE_HEV_2026"
 
+# ===== IONIQ 9 완전 연속 보간 제어 시스템 =====
+
+# 극미세 노이즈 물리적 차단 (센서 노이즈 수준)
+NOISE_THRESHOLD = 0.05
+
+# 조향각 변화량 기반 부스트 곡선 (소음 억제 + 반응성 향상)
+ANGLE_DIFF_POINTS = np.array([0.0,   0.08,  0.20,  0.50,  1.5], dtype=float)
+BOOST_FACTORS =     np.array([0.15,  0.25,  1.0,   2.0,   2.5], dtype=float)
+
+# 운전자 토크 기반 연속 제어 곡선 (STEER_THRESHOLD 배수로 정의)
+TORQUE_MULTIPLIERS = np.array([0.0,  0.5,  1.0,  2.5,  4.0], dtype=float)
+ALPHA_VALUES =       np.array([0.015, 0.025, 0.050, 0.120, 0.200], dtype=float)
+GAIN_REDUCTION =     np.array([1.0,  1.0,  0.8,  0.4,  0.15], dtype=float)
+
 
 def get_baseline_safety_cp():
   from opendbc.car.hyundai.interface import CarInterface
   return CarInterface.get_non_essential_params(ANGLE_SAFETY_BASELINE_MODEL)
 
 
-def calculate_angle_torque_reduction_gain(params, CS, apply_torque_last, target_torque_reduction_gain, v_ego_raw=0):
-  """ Calculate the angle torque reduction gain based on the current steering state. """
-  target_gain = max(target_torque_reduction_gain, params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN)
-
+def calculate_angle_torque_reduction_gain(params, CS, apply_torque_last, target_torque_reduction_gain):
+  """
+  Hybrid Continuous Control: 명확한 의도 구분 + 부드러운 연속 제어
+  
+  - steeringPressed: 거시적 상태 구분 (자율 vs 개입)
+  - 연속 보간: 각 상태 내에서 부드러운 미세 제어
+  """
   driver_torque = abs(CS.out.steeringTorque)
-
-   # [수정] 저속에서는 더 부드러운 alpha 사용 (토크 변화율 감소)
-  if v_ego_raw < 8.33:  # 30km/h 이하
-    alpha = np.interp(driver_torque, 
-                     [params.STEER_THRESHOLD * .8, params.STEER_THRESHOLD * 2], 
-                     [0.008, 0.04])  # 기존 [0.02, 0.1]의 40% 수준
+  torque_points = TORQUE_MULTIPLIERS * params.STEER_THRESHOLD
+  
+  if not CS.out.steeringPressed:
+    # [자율주행 모드] 시스템이 주도권을 유지하며 안정적 제어
+    alpha = float(np.interp(driver_torque, torque_points, ALPHA_VALUES))
+    target_gain = max(target_torque_reduction_gain, params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN)
+    
   else:
-    alpha = np.interp(driver_torque, 
-                     [params.STEER_THRESHOLD * .8, params.STEER_THRESHOLD * 2], 
-                     [0.02, 0.1])
-
-  if CS.out.steeringPressed:
-    # [수정] 저속에서는 더 완만한 지수 감소
-    scale = 200 if v_ego_raw < 8.33 else 100  # scale 증가로 완만한 변화
-    clamped_torque_gain = max(apply_torque_last, params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN)
-    target_gain = params.ANGLE_MIN_TORQUE_REDUCTION_GAIN + (clamped_torque_gain - params.ANGLE_MIN_TORQUE_REDUCTION_GAIN) \
-                  * math.exp(-(driver_torque - params.STEER_THRESHOLD) / scale)
-
-  # Smooth transition (like a rubber band returning)
+    # [개입 모드] 운전자 의도에 따라 신속하고 적응적으로 양보
+    # 개입시 2배 빠른 반응 (하지만 여전히 연속적)
+    intervention_alphas = np.clip(ALPHA_VALUES * 2.0, 0.0, 0.3)
+    alpha = float(np.interp(driver_torque, torque_points, intervention_alphas))
+    
+    # 토크에 비례한 연속적 게인 감소
+    base_gain = max(target_torque_reduction_gain, params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN)
+    gain_ratio = float(np.interp(driver_torque, torque_points, GAIN_REDUCTION))
+    target_gain = params.ANGLE_MIN_TORQUE_REDUCTION_GAIN + \
+                 (base_gain - params.ANGLE_MIN_TORQUE_REDUCTION_GAIN) * gain_ratio
+  
+  # 지수 가중 평균으로 부드러운 전환
   new_gain = apply_torque_last + alpha * (target_gain - apply_torque_last)
-
+  
   return float(np.clip(new_gain, params.ANGLE_MIN_TORQUE_REDUCTION_GAIN, params.ANGLE_MAX_TORQUE_REDUCTION_GAIN))
 
 
@@ -96,22 +114,29 @@ def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: floa
 
   Returns:
     float: Smoothed steering angle.
+  
+  Pure Continuous Interpolation Smoothing: 조건문 없는 완전 연속 제어
+  
+  - 속도 기반 기본 alpha (현대차 검증 곡선 유지)
+  - 변화량 기반 적응형 부스트 (IONIQ 9 최적화)
+  - 모든 구간에서 부드러운 연속 함수
   """
-  # [핵심 수정] 저속에서는 변화량과 관계없이 무조건 스무딩 적용
-
-  if abs(apply_angle - apply_angle_last) > 0.1 or v_ego_raw < 8.33:   # 30km/h 이하
-    adjusted_alpha = np.interp(v_ego_raw, CarControllerParams.SMOOTHING_ANGLE_VEGO_MATRIX, CarControllerParams.SMOOTHING_ANGLE_ALPHA_MATRIX)
-    adjusted_alpha_limited = float(min(float(adjusted_alpha), 1.))  # Limit the smoothing factor to 1 if adjusted_alpha is greater than 1
-
-    # [추가] 저속에서 스무딩 강도 강화
-    if v_ego_raw < 2.78:  # 10km/h 이하
-      adjusted_alpha_limited = min(adjusted_alpha_limited, 0.08)  # 매우 부드럽게
-    elif v_ego_raw < 5.56:  # 20km/h 이하  
-      adjusted_alpha_limited = min(adjusted_alpha_limited, 0.15)  # 부드럽게
-    
-    return (apply_angle * adjusted_alpha_limited) + (apply_angle_last * (1 - adjusted_alpha_limited))
-
-  return apply_angle
+  angle_diff = abs(apply_angle - apply_angle_last)
+  
+  # [1단계] 속도 기반 기본 alpha (기존 검증된 현대차 매트릭스 유지)
+  base_alpha = np.interp(v_ego_raw, 
+                        CarControllerParams.SMOOTHING_ANGLE_VEGO_MATRIX, 
+                        CarControllerParams.SMOOTHING_ANGLE_ALPHA_MATRIX)
+  base_alpha = float(np.clip(base_alpha, 0.0, 1.0))
+  
+  # [2단계] 변화량 기반 부스트 계수 (IONIQ 9 소음 제거 + 반응성 최적화)
+  boost_factor = float(np.interp(angle_diff, ANGLE_DIFF_POINTS, BOOST_FACTORS))
+  
+  # [3단계] 최종 alpha 계산 (이중 보간의 곱)
+  final_alpha = float(np.clip(base_alpha * boost_factor, 0.0, 1.0))
+  
+  # [4단계] 지수 가중 평균 (완전 연속적 블렌딩)
+  return float(apply_angle * final_alpha + apply_angle_last * (1.0 - final_alpha))
 
 
 def process_hud_alert(enabled, fingerprint, hud_control):
@@ -197,8 +222,8 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
       self.angle_enable_smoothing_factor = self._params.get_bool("EnableHkgTuningAngleSmoothingFactor")
 
     self.angle_torque_reduction_gain_controller = TorqueReductionGainController(
-      angle_threshold=0.8,  # 0.3 → 0.8: 저속에서 더 관대하게
-      debounce_time=0.25,   # 0.1 → 0.25: 더 긴 안정화 시간  
+      angle_threshold=0.5,  # 0.3 → 0.8: 저속에서 더 관대하게
+      debounce_time=0.20,   # 0.1 → 0.25: 더 긴 안정화 시간  
       min_gain=self.params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN,
       max_gain=self.params.ANGLE_MAX_TORQUE_REDUCTION_GAIN,
       ramp_up_rate=self.params.ANGLE_RAMP_UP_TORQUE_REDUCTION_RATE * 0.6,    # 40% 감속
@@ -228,15 +253,10 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
       v_ego_raw = CS.out.vEgoRaw
       desired_angle = np.clip(actuators.steeringAngleDeg, -self.params.ANGLE_LIMITS.STEER_ANGLE_MAX, self.params.ANGLE_LIMITS.STEER_ANGLE_MAX)
 
-      # ===== 추가: IONIQ 9 저속 안정화 Rate Limiter =====
-      if v_ego_raw < 6.94:  # 25km/h 미만에서 작동
-        # 프레임당 최대 변화량 제한 (50Hz 기준)
-        MAX_DEG_PER_FRAME = 0.25  # 소음 심하면 0.15로 감소, 반응 느리면 0.35로 증가
-        
-        angle_delta = desired_angle - self.apply_angle_last
-        if abs(angle_delta) > MAX_DEG_PER_FRAME:
-          desired_angle = self.apply_angle_last + (MAX_DEG_PER_FRAME * np.sign(angle_delta))
-      # ===== Rate Limiter 끝 =====
+      # ===== [추가] 통합 소음 제거 Dead Zone =====    
+      if abs(desired_angle - self.apply_angle_last) < NOISE_THRESHOLD:
+        desired_angle = self.apply_angle_last
+      # ===== Dead Zone 끝 =====
 
       if self.angle_enable_smoothing_factor and abs(v_ego_raw) < CarControllerParams.SMOOTHING_ANGLE_MAX_VEGO:
         desired_angle = sp_smooth_angle(v_ego_raw, desired_angle, self.apply_angle_last)
@@ -256,7 +276,7 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
       )
 
       # This method ensures that the torque gives up when overriding and controls the ramp rate to avoid feeling jittery.
-      apply_torque = calculate_angle_torque_reduction_gain(self.params, CS, self.apply_torque_last, target_torque_reduction_gain, v_ego_raw)
+      apply_torque = calculate_angle_torque_reduction_gain(self.params, CS, self.apply_torque_last, target_torque_reduction_gain)
 
       # apply_steer_req is True when we are actively attempting to steer and under the angle limit. Otherwise the user is overriding.
       apply_steer_req = CC.latActive and apply_torque != 0
