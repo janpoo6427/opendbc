@@ -55,6 +55,13 @@ TORQUE_MULTIPLIERS = np.array([0.0,  0.5,  1.0,  2.5,  4.0], dtype=float)
 ALPHA_VALUES =       np.array([0.015, 0.025, 0.050, 0.120, 0.200], dtype=float)
 GAIN_REDUCTION =     np.array([1.0,  1.0,  0.8,  0.4,  0.15], dtype=float)
 
+# 속도 기반 기본 감쇠
+VELOCITY_DAMPING_POINTS = np.array([0.0, 0.8, 2.0, 5.0], dtype=float)
+VELOCITY_DAMPING_FACTORS = np.array([0.02, 0.08, 0.3, 1.0], dtype=float)
+
+# 큰 조향일 때는 저속에서도 제어력 확보
+ANGLE_DIFF_RELAXATION_POINTS = np.array([0.0, 0.3, 0.8, 2.0], dtype=float)
+ANGLE_DIFF_RELAXATION_FACTORS = np.array([1.0, 1.5, 3.0, 10.0], dtype=float)
 
 def get_baseline_safety_cp():
   from opendbc.car.hyundai.interface import CarInterface
@@ -115,11 +122,7 @@ def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: floa
   Returns:
     float: Smoothed steering angle.
   
-  Pure Continuous Interpolation Smoothing: 조건문 없는 완전 연속 제어
-  
-  - 속도 기반 기본 alpha (현대차 검증 곡선 유지)
-  - 변화량 기반 적응형 부스트 (IONIQ 9 최적화)
-  - 모든 구간에서 부드러운 연속 함수
+    - 지능형 적응 감쇠: 큰 조향일 때는 저속에서도 감쇠 완화
   """
   angle_diff = abs(apply_angle - apply_angle_last)
   
@@ -129,13 +132,20 @@ def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: floa
                         CarControllerParams.SMOOTHING_ANGLE_ALPHA_MATRIX)
   base_alpha = float(np.clip(base_alpha, 0.0, 1.0))
   
-  # [2단계] 변화량 기반 부스트 계수 (IONIQ 9 소음 제거 + 반응성 최적화)
   boost_factor = float(np.interp(angle_diff, ANGLE_DIFF_POINTS, BOOST_FACTORS))
   
-  # [3단계] 최종 alpha 계산 (이중 보간의 곱)
-  final_alpha = float(np.clip(base_alpha * boost_factor, 0.0, 1.0))
+  # [2단계] 변화량 기반 부스트 계수 (IONIQ 9 소음 제거 + 반응성 최적화) 
+  relaxation_factor = float(np.interp(angle_diff, 
+                                      ANGLE_DIFF_RELAXATION_POINTS, 
+                                      ANGLE_DIFF_RELAXATION_FACTORS))
+                                      
+  base_velocity_damping = float(np.interp(v_ego_raw, VELOCITY_DAMPING_POINTS, VELOCITY_DAMPING_FACTORS))
   
-  # [4단계] 지수 가중 평균 (완전 연속적 블렌딩)
+  # 최종 감쇠 = 기본 감쇠 × 완화 계수 (조건문 없는 연속 보간 유지)
+  velocity_damping = float(np.clip(base_velocity_damping * relaxation_factor, 0.0, 1.0))
+  
+  final_alpha = float(np.clip(base_alpha * boost_factor * velocity_damping, 0.0, 1.0))
+  
   return float(apply_angle * final_alpha + apply_angle_last * (1.0 - final_alpha))
 
 
