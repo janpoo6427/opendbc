@@ -57,7 +57,7 @@ GAIN_REDUCTION =     np.array([1.0,  1.0,  0.8,  0.4,  0.15], dtype=float)
 
 # 속도 기반 기본 감쇠
 VELOCITY_DAMPING_POINTS = np.array([0.0, 0.8, 2.0, 5.0], dtype=float)
-VELOCITY_DAMPING_FACTORS = np.array([0.02, 0.08, 0.3, 1.0], dtype=float)
+VELOCITY_DAMPING_FACTORS = np.array([0.01, 0.05, 0.3, 1.0], dtype=float)
 
 # 큰 조향일 때는 저속에서도 제어력 확보
 ANGLE_DIFF_RELAXATION_POINTS = np.array([0.0, 0.3, 0.8, 2.0], dtype=float)
