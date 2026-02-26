@@ -35,7 +35,7 @@ class CarControllerParams:
     MAX_LATERAL_JERK=(2.2 + (ACCELERATION_DUE_TO_GRAVITY * AVERAGE_ROAD_ROLL)),  # ~3.6 m/s^3,
     #MAX_ANGLE_RATE=5  # comfort rate limit for angle commands, in degrees per frame.
     # try 1
-    MAX_ANGLE_RATE = 2.0
+    MAX_ANGLE_RATE = 1.9
     # try 2
     #MAX_ANGLE_RATE=3
   )
@@ -59,7 +59,7 @@ class CarControllerParams:
   #ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN = 0.6  # Torque command when the car is stopped, to prevent steering wheel from being too loose.
   
   # try 1
-  ANGLE_MAX_TORQUE_REDUCTION_GAIN = 0.65    # 기존 1.0 → 0.65 (35% 감소)
+  ANGLE_MAX_TORQUE_REDUCTION_GAIN = 0.6 #0.65    # 기존 1.0 → 0.65 (35% 감소)
   ANGLE_MIN_TORQUE_REDUCTION_GAIN = 0.06    # 기존 0.1 → 0.06 (운전자 개입 시 최소 저항)
   ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN = 0.05 #0.08 #0.15  # 기존 0.6 → 0.15 (정지 시 진동 완전 제거)
 
@@ -93,7 +93,7 @@ class CarControllerParams:
 
   # try 1 
   SMOOTHING_ANGLE_VEGO_MATRIX = [0, 3.5, 8.0, 13.0, 18.00, 22.22]
-  SMOOTHING_ANGLE_ALPHA_MATRIX = [0.008, 0.04, 0.14, 0.32, 0.68, 0.9]
+  SMOOTHING_ANGLE_ALPHA_MATRIX = [0.008, 0.03, 0.10, 0.32, 0.68, 0.9]
   # try 2
   # SMOOTHING_ANGLE_VEGO_MATRIX = [0, 6.0, 11, 13.8, 22.22]  # 저속 구간 세분화
   # SMOOTHING_ANGLE_ALPHA_MATRIX = [0.02, 0.06, 0.2, 0.5, 1.0]  # 저속 반응성 대폭 감소
