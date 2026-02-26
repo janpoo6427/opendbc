@@ -32,7 +32,7 @@ class CarControllerParams:
     ([], []),
     ([], []),
     MAX_LATERAL_ACCEL=(ISO_LATERAL_ACCEL + (ACCELERATION_DUE_TO_GRAVITY * AVERAGE_ROAD_ROLL)),  # ~3.6 m/s^2
-    MAX_LATERAL_JERK=(1.5 + (ACCELERATION_DUE_TO_GRAVITY * AVERAGE_ROAD_ROLL)),  # ~3.6 m/s^3,
+    MAX_LATERAL_JERK=(0.9 + (ACCELERATION_DUE_TO_GRAVITY * AVERAGE_ROAD_ROLL)),  # ~3.6 m/s^3,
     #MAX_ANGLE_RATE=5  # comfort rate limit for angle commands, in degrees per frame.
     # try 1
     MAX_ANGLE_RATE = 1.6
@@ -59,9 +59,9 @@ class CarControllerParams:
   #ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN = 0.6  # Torque command when the car is stopped, to prevent steering wheel from being too loose.
   
   # try 1
-  ANGLE_MAX_TORQUE_REDUCTION_GAIN = 0.50 #0.65    # 기존 1.0 → 0.65 (35% 감소)
-  ANGLE_MIN_TORQUE_REDUCTION_GAIN = 0.04 #0.06   # 기존 0.1 → 0.06 (운전자 개입 시 최소 저항)
-  ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN = 0.01 #0.08 #0.15  # 기존 0.6 → 0.15 (정지 시 진동 완전 제거)
+  ANGLE_MAX_TORQUE_REDUCTION_GAIN = 0.32 #0.65    # 기존 1.0 → 0.65 (35% 감소)
+  ANGLE_MIN_TORQUE_REDUCTION_GAIN = 0.02 #0.06   # 기존 0.1 → 0.06 (운전자 개입 시 최소 저항)
+  ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN = 0.003 #0.08 #0.15  # 기존 0.6 → 0.15 (정지 시 진동 완전 제거)
 
   # try 2
   # ANGLE_MAX_TORQUE_REDUCTION_GAIN = 0.75    # 25% 감소로 MDPS 부담 완화
@@ -75,8 +75,8 @@ class CarControllerParams:
   # ANGLE_TORQUE_OVERRIDE_CYCLES = 17  # Number of control cycles over which torque ramps down to minimum after driver override is detected.
 
   # try 1
-  ANGLE_RAMP_UP_TORQUE_REDUCTION_RATE = 0.0012 # 0.003
-  ANGLE_RAMP_DOWN_TORQUE_REDUCTION_RATE = 0.0012 #0.004
+  ANGLE_RAMP_UP_TORQUE_REDUCTION_RATE = 0.0005 # 0.003
+  ANGLE_RAMP_DOWN_TORQUE_REDUCTION_RATE = 0.004 #0.004
   ANGLE_TORQUE_OVERRIDE_CYCLES = 8 #10
   # try 2
   #ANGLE_RAMP_UP_TORQUE_REDUCTION_RATE = 0.004    # 토크 증가를 더 부드럽게
@@ -92,12 +92,14 @@ class CarControllerParams:
 
 
   # try 1 
-  SMOOTHING_ANGLE_VEGO_MATRIX = [0, 1.0, 2.0, 5.0, 8.0, 12.0, 18.00, 22.22]
-  SMOOTHING_ANGLE_ALPHA_MATRIX = [0, 0.001, 0.008, 0.025, 0.08, 0.25, 0.65, 0.9]
+  # SMOOTHING_ANGLE_VEGO_MATRIX = [0, 1.0, 2.0, 5.0, 8.0, 12.0, 18.00, 22.22]
+  # SMOOTHING_ANGLE_ALPHA_MATRIX = [0, 0.001, 0.008, 0.025, 0.08, 0.25, 0.65, 0.9]
   # try 2
   # SMOOTHING_ANGLE_VEGO_MATRIX = [0, 6.0, 11, 13.8, 22.22]  # 저속 구간 세분화
   # SMOOTHING_ANGLE_ALPHA_MATRIX = [0.02, 0.06, 0.2, 0.5, 1.0]  # 저속 반응성 대폭 감소
-
+  # try 3
+  SMOOTHING_ANGLE_VEGO_MATRIX = [0, 1.5, 4.0, 8.0, 15.0, 25.0, 40.0]
+  SMOOTHING_ANGLE_ALPHA_MATRIX = [0.0003, 0.0008, 0.003, 0.012, 0.05, 0.25, 0.80]
 
   SMOOTHING_ANGLE_MAX_VEGO = SMOOTHING_ANGLE_VEGO_MATRIX[-1]
 
