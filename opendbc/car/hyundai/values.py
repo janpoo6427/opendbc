@@ -26,14 +26,18 @@ class CarControllerParams:
     # - LKAS max requested angle is 176.7°, but no fault occurs if higher values are requested.
     # - LFA max stock value is 119.9°.
     # The ADAS ECU clamps LKAS commands above 176.7° down to 176.7°,
-    # and clamps LFA commands above 119.9° down to 119.9°.
+    # and clamps LFA commands above 119.9° down to 119.9°.f
     180,  # degrees (safe upper bound for command, allowing some margin)
     # HKG uses a vehicle model instead, check carcontroller.py for details
     ([], []),
     ([], []),
     MAX_LATERAL_ACCEL=(ISO_LATERAL_ACCEL + (ACCELERATION_DUE_TO_GRAVITY * AVERAGE_ROAD_ROLL)),  # ~3.6 m/s^2
     MAX_LATERAL_JERK=(3.0 + (ACCELERATION_DUE_TO_GRAVITY * AVERAGE_ROAD_ROLL)),  # ~3.6 m/s^3,
-    MAX_ANGLE_RATE=5  # comfort rate limit for angle commands, in degrees per frame.
+    #MAX_ANGLE_RATE=5  # comfort rate limit for angle commands, in degrees per frame.
+    # try 1
+    MAX_ANGLE_RATE = 2.4 
+    # try 2
+    #MAX_ANGLE_RATE=3
   )
 
   # Torque control parameters:
@@ -49,21 +53,52 @@ class CarControllerParams:
   #
   # The normalized torque command defines the maximum steering torque we allow the EPS to apply
   # to reach the desired steering angle, effectively limiting the maximum assist torque.
+  # 기본 토크 Gain 조정
+  #ANGLE_MAX_TORQUE_REDUCTION_GAIN = 1.  # Maximum torque command applied to the steering actuator.
+  #ANGLE_MIN_TORQUE_REDUCTION_GAIN = 0.1  # Minimum torque command allowed when the driver is overriding, to maintain steering feedback.
+  #ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN = 0.6  # Torque command when the car is stopped, to prevent steering wheel from being too loose.
+  
+  # try 1
+  ANGLE_MAX_TORQUE_REDUCTION_GAIN = 0.65    # 기존 1.0 → 0.65 (35% 감소)
+  ANGLE_MIN_TORQUE_REDUCTION_GAIN = 0.06    # 기존 0.1 → 0.06 (운전자 개입 시 최소 저항)
+  ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN = 0.15  # 기존 0.6 → 0.15 (정지 시 진동 완전 제거)
 
-  ANGLE_MAX_TORQUE_REDUCTION_GAIN = 1.  # Maximum torque command applied to the steering actuator.
-  ANGLE_MIN_TORQUE_REDUCTION_GAIN = 0.1  # Minimum torque command allowed when the driver is overriding, to maintain steering feedback.
-  ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN = 0.6  # Torque command when the car is stopped, to prevent steering wheel from being too loose.
+  # try 2
+  # ANGLE_MAX_TORQUE_REDUCTION_GAIN = 0.75    # 25% 감소로 MDPS 부담 완화
+  # ANGLE_MIN_TORQUE_REDUCTION_GAIN = 0.08    # 운전자 개입 시 더 가벼운 느낌
+  # ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN = 0.25  # 정지 시 진동 현상 대폭 완화
 
+  # 토크 변화율 최적화
   # Rate limits for changing steering torque commands:
-  ANGLE_RAMP_UP_TORQUE_REDUCTION_RATE = 0.008  # Maximum rate at which torque can increase per control cycle.
-  ANGLE_RAMP_DOWN_TORQUE_REDUCTION_RATE = 0.0012  # Maximum rate at which torque can decrease per cycle
+  # ANGLE_RAMP_UP_TORQUE_REDUCTION_RATE = 0.008  # Maximum rate at which torque can increase per control cycle.
+  # ANGLE_RAMP_DOWN_TORQUE_REDUCTION_RATE = 0.0012  # Maximum rate at which torque can decrease per cycle
+  # ANGLE_TORQUE_OVERRIDE_CYCLES = 17  # Number of control cycles over which torque ramps down to minimum after driver override is detected.
 
-  ANGLE_TORQUE_OVERRIDE_CYCLES = 17  # Number of control cycles over which torque ramps down to minimum after driver override is detected.
+  # try 1
+  ANGLE_RAMP_UP_TORQUE_REDUCTION_RATE = 0.003
+  ANGLE_RAMP_DOWN_TORQUE_REDUCTION_RATE = 0.004
+  ANGLE_TORQUE_OVERRIDE_CYCLES = 10
+  # try 2
+  #ANGLE_RAMP_UP_TORQUE_REDUCTION_RATE = 0.004    # 토크 증가를 더 부드럽게
+  #ANGLE_RAMP_DOWN_TORQUE_REDUCTION_RATE = 0.003  # 토크 감소를 더 빠르게
+  #ANGLE_TORQUE_OVERRIDE_CYCLES = 12              # 운전자 개입 시 빠른 반응
 
+  # 속도별 스무딩 매트릭스 최적화
   # More torque optimization
   # The torque is calculated based on the curvature of the road and the speed of the car and it's a percentage of the maximum torque.
-  SMOOTHING_ANGLE_VEGO_MATRIX = [0, 8.5, 11, 13.8, 22.22]
-  SMOOTHING_ANGLE_ALPHA_MATRIX = [0.05, 0.1, 0.3, 0.6, 1]
+
+  # SMOOTHING_ANGLE_VEGO_MATRIX = [0, 8.5, 11, 13.8, 22.22]
+  # SMOOTHING_ANGLE_ALPHA_MATRIX = [0.05, 0.1, 0.3, 0.6, 1]
+
+
+  # try 1 
+  SMOOTHING_ANGLE_VEGO_MATRIX = [0, 4.0, 9.0, 14.0, 22.22]
+  SMOOTHING_ANGLE_ALPHA_MATRIX = [0.015, 0.05, 0.18, 0.45, 0.9]
+  # try 2
+  # SMOOTHING_ANGLE_VEGO_MATRIX = [0, 6.0, 11, 13.8, 22.22]  # 저속 구간 세분화
+  # SMOOTHING_ANGLE_ALPHA_MATRIX = [0.02, 0.06, 0.2, 0.5, 1.0]  # 저속 반응성 대폭 감소
+
+
   SMOOTHING_ANGLE_MAX_VEGO = SMOOTHING_ANGLE_VEGO_MATRIX[-1]
 
   def __init__(self, CP):
