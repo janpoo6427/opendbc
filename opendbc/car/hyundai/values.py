@@ -93,7 +93,7 @@ class CarControllerParams:
 
   # try 1 
   SMOOTHING_ANGLE_VEGO_MATRIX = [0, 2.5, 6.0, 10.0, 15.0, 20.00, 22.22]
-  SMOOTHING_ANGLE_ALPHA_MATRIX = [0.008, 0.025, 0.20, 0.45, 0.75, 0.9]
+  SMOOTHING_ANGLE_ALPHA_MATRIX = [0.008, 0.025, 0.08, 0.20, 0.45, 0.75, 0.9]
   # try 2
   # SMOOTHING_ANGLE_VEGO_MATRIX = [0, 6.0, 11, 13.8, 22.22]  # 저속 구간 세분화
   # SMOOTHING_ANGLE_ALPHA_MATRIX = [0.02, 0.06, 0.2, 0.5, 1.0]  # 저속 반응성 대폭 감소
