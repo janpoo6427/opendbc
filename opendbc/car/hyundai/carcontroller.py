@@ -132,6 +132,75 @@ def parse_scaled_value(val, scale=10):
     return float(val) / scale
   return None
 
+def rate_limit(x, x_last, lo, hi):
+  return float(np.clip(x, x_last + lo, x_last + hi))
+
+def apply_steer_angle_limits_physics(desired_sw_deg: float,
+                                     last_sw_deg: float,
+                                     v_ego: float,
+                                     steering_sw_deg: float,
+                                     lat_active: bool,
+                                     wheelbase_m: float,
+                                     steer_ratio: float,
+                                     steer_sw_max_deg: float) -> float:
+  
+  # ★ 통합된 저속 보호 로직
+  VERY_LOW_SPEED = 0.5    # 1.8 km/h
+  LOW_SPEED = 1.5         # 5.4 km/h - update()와 일치
+  
+  # 비활성화 또는 극저속에서는 현재 각도 유지
+  if not lat_active or v_ego < VERY_LOW_SPEED:
+    return float(steering_sw_deg)
+  
+  # 저속 구간 추가 보호 (0.5~1.5 m/s)
+  if v_ego < LOW_SPEED:
+    max_change = 0.3 + (v_ego - VERY_LOW_SPEED) * 0.7  # 0.3~1.0도 선형 증가
+    return float(np.clip(desired_sw_deg,
+                        last_sw_deg - max_change,
+                        last_sw_deg + max_change))
+  
+  # 속도별 차등 제한값 적용
+  if v_ego < 5.0:  # 저속~중저속 (18 km/h 미만)
+    max_lat_accel = 2.5
+    max_lat_jerk = 2.0
+    max_sw_rate_deg_per_tick = 1.0
+    time_constant = 2.0
+  else:  # 일반 주행
+    max_lat_accel = 5.0
+    max_lat_jerk = 4.0
+    max_sw_rate_deg_per_tick = 2.0
+    time_constant = 1.2
+  
+  v = max(float(v_ego), LOW_SPEED)  # 최소값을 1.5로 설정
+  
+  target_sw = float(np.clip(desired_sw_deg, -steer_sw_max_deg, steer_sw_max_deg))
+  target_rw = target_sw / steer_ratio
+  last_rw = float(last_sw_deg) / steer_ratio
+  
+  # 횡가속도 제한
+  rw_max_rad = np.arctan((max_lat_accel * wheelbase_m) / (v * v))
+  rw_max = float(np.degrees(rw_max_rad))
+  
+  # 저크 기반 각속도 제한
+  max_drw_dt = (max_lat_jerk * wheelbase_m) / (v * v * time_constant)
+  max_drw_per_tick = max_drw_dt * DT_CTRL
+  max_drw_per_tick_deg = float(np.degrees(max_drw_per_tick))
+  
+  max_drw_per_tick_deg = min(max_drw_per_tick_deg, max_sw_rate_deg_per_tick / steer_ratio)
+  
+  # 각도 오차별 속도 제한
+  err = abs(target_sw - last_sw_deg)
+  if err > 10.0:
+    max_drw_per_tick_deg *= 0.8
+  
+  # 제한 적용
+  cmd_rw = rate_limit(target_rw, last_rw, -max_drw_per_tick_deg, max_drw_per_tick_deg)
+  cmd_rw = float(np.clip(cmd_rw, -rw_max, rw_max))
+  
+  cmd_sw = cmd_rw * steer_ratio
+  return float(np.clip(cmd_sw, -steer_sw_max_deg, steer_sw_max_deg))
+
+  
 
 class CarController(CarControllerBase, EsccCarController, LeadDataCarController, LongitudinalController, MadsCarController,
                     IntelligentCruiseButtonManagementInterface):
@@ -197,57 +266,78 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
 
     # steering torque
     if not self.CP.flags & HyundaiFlags.CANFD_ANGLE_STEERING:
-      self.angle_limit_counter, apply_steer_req = common_fault_avoidance(abs(CS.out.steeringAngleDeg) >= MAX_ANGLE, CC.latActive,
-                                                                         self.angle_limit_counter, MAX_ANGLE_FRAMES,
-                                                                         MAX_ANGLE_CONSECUTIVE_FRAMES)
+      self.angle_limit_counter, apply_steer_req = common_fault_avoidance(
+          abs(CS.out.steeringAngleDeg) >= MAX_ANGLE, CC.latActive,
+          self.angle_limit_counter, MAX_ANGLE_FRAMES,
+          MAX_ANGLE_CONSECUTIVE_FRAMES
+      )
       new_torque = int(round(actuators.torque * self.params.STEER_MAX))
       apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last, CS.out.steeringTorque, self.params)
+      
+      # 토크 모드에서는 현재 조향각 유지
+      apply_angle = CS.out.steeringAngleDeg
 
-    # angle control
+  # angle control
     else:
       v_ego_raw = CS.out.vEgoRaw
-      desired_angle = np.clip(actuators.steeringAngleDeg, -self.params.ANGLE_LIMITS.STEER_ANGLE_MAX, self.params.ANGLE_LIMITS.STEER_ANGLE_MAX)
-
-      if self.angle_enable_smoothing_factor and abs(v_ego_raw) < CarControllerParams.SMOOTHING_ANGLE_MAX_VEGO:
+      MIN_STEER_SPEED = 1.5  # m/s (5.4 km/h)
+      
+      # 속도 기반 조향 활성화 조건
+      lat_allowed = CC.latActive and (v_ego_raw > MIN_STEER_SPEED)
+      apply_steer_req = lat_allowed
+      
+      # ★ 각도 조향 모드에서는 토크를 0으로 고정 (불필요한 계산 제거)
+      apply_torque = 0
+      
+      # 스무딩 적용
+      desired_angle = actuators.steeringAngleDeg
+      if (self.angle_enable_smoothing_factor and 
+          abs(v_ego_raw) < CarControllerParams.SMOOTHING_ANGLE_MAX_VEGO):
         desired_angle = sp_smooth_angle(v_ego_raw, desired_angle, self.apply_angle_last)
 
-      apply_angle = apply_steer_angle_limits_vm(desired_angle, self.apply_angle_last, v_ego_raw, CS.out.steeringAngleDeg, CC.latActive, self.params, self.VM)
-
-      # if we are not the baseline model, we use the baseline model for further limits to prevent a panda block since it is hardcoded for baseline model.
-      if self.CP.carFingerprint != ANGLE_SAFETY_BASELINE_MODEL:
-        apply_angle = apply_steer_angle_limits_vm(apply_angle or desired_angle, self.apply_angle_last, v_ego_raw, CS.out.steeringAngleDeg, CC.latActive,
-                                                  self.params, self.BASELINE_VM)
-
-      # Use saturation-based torque reduction gain
-      target_torque_reduction_gain = self.angle_torque_reduction_gain_controller.update(
-        last_requested_angle=self.apply_angle_last,
-        actual_angle=CS.out.steeringAngleDeg,
-        lat_active=CC.latActive
+      # EPS 보호를 위한 각도 제한
+      safe_steer_max = min(self.params.ANGLE_LIMITS.STEER_ANGLE_MAX, MAX_ANGLE)
+      
+      # 물리적 제한 적용
+      apply_angle = apply_steer_angle_limits_physics(
+          desired_angle,
+          self.apply_angle_last,
+          v_ego_raw,
+          CS.out.steeringAngleDeg,
+          lat_allowed,  # ★ 통합된 활성화 조건 사용
+          self.CP.wheelbase,
+          self.CP.steerRatio,
+          safe_steer_max
       )
 
-      # This method ensures that the torque gives up when overriding and controls the ramp rate to avoid feeling jittery.
-      apply_torque = calculate_angle_torque_reduction_gain(self.params, CS, self.apply_torque_last, target_torque_reduction_gain)
-
-      # apply_steer_req is True when we are actively attempting to steer and under the angle limit. Otherwise the user is overriding.
-      apply_steer_req = CC.latActive and apply_torque != 0
-
-      # Failsafe if we detected we'd violate safety
-      if apply_angle is None:
-        apply_torque = 0
+      # Failsafe: 비정상 값 감지
+      if apply_angle is None or not np.isfinite(apply_angle):
         apply_angle = CS.out.steeringAngleDeg
         apply_steer_req = False
+      else:
+        # 속도별 각도 변화율 제한
+        angle_change_rate = abs(apply_angle - self.apply_angle_last) / DT_CTRL
+        max_rate = 15.0 if v_ego_raw < 5.0 else 30.0
+            
+        if angle_change_rate > max_rate:
+          apply_angle = self.apply_angle_last + np.sign(apply_angle - self.apply_angle_last) * max_rate * DT_CTRL
+      
+      # ★ 신호 일관성: 조향 요청이 없으면 현재 각도 유지
+      if not apply_steer_req:
+        apply_angle = CS.out.steeringAngleDeg
 
-      # After we've used the last angle wherever we needed it, we now update it.
-      self.apply_angle_last = apply_angle
-
+    # ★ 조향 비활성화 처리 강화
     if not CC.latActive:
       apply_torque = 0
+      apply_angle = CS.out.steeringAngleDeg  # 현재 각도로 동기화
+
+    # apply_angle_last 업데이트 (모든 경로에서 공통)
+    self.apply_angle_last = apply_angle
 
     # Hold torque with induced temporary fault when cutting the actuation bit
-    # FIXME: we don't use this with CAN FD?
     torque_fault = CC.latActive and not apply_steer_req
-
     self.apply_torque_last = apply_torque
+
 
     # accel + longitudinal
     accel = float(np.clip(actuators.accel, CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX))
