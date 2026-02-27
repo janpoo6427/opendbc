@@ -49,16 +49,35 @@ def get_baseline_safety_cp():
 
 def calculate_angle_torque_reduction_gain(params, CS, apply_torque_last, target_torque_reduction_gain):
   """ Calculate the angle torque reduction gain based on the current steering state. """
-  target_gain = max(target_torque_reduction_gain, params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN)
+    # ===== 정차 감지 및 강제 토크 축소 (핵심 추가!) =====
+  v_ego = CS.out.vEgo
+  is_stopping = v_ego < 0.5 and (CS.out.brakePressed or CS.out.standstill)
+  is_stopped = v_ego < 0.15  # 0.54km/h 이하
+  
+  if is_stopped or is_stopping:
+    # 정차 또는 정차 직전: 즉시 ACTIVE 토크로 전환
+    target_gain = params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN
+  else:
+    target_gain = max(target_torque_reduction_gain, params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN)
 
   driver_torque = abs(CS.out.steeringTorque)
-  alpha = np.interp(driver_torque, [params.STEER_THRESHOLD * .8, params.STEER_THRESHOLD * 2], [0.02, 0.1])
 
   if CS.out.steeringPressed:
     scale = 100
     clamped_torque_gain = max(apply_torque_last, params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN)
     target_gain = params.ANGLE_MIN_TORQUE_REDUCTION_GAIN + (clamped_torque_gain - params.ANGLE_MIN_TORQUE_REDUCTION_GAIN) \
                   * math.exp(-(driver_torque - params.STEER_THRESHOLD) / scale)
+
+  # ===== 비대칭 알파 적용 (정차 시 빠른 반응) =====
+  if is_stopped:
+    # 정차 시: 매우 빠른 토크 감소
+    alpha = 0.4
+  elif is_stopping:
+    # 정차 직전: 빠른 토크 감소
+    alpha = 0.2
+  else:
+    # 일반 주행: 기존 로직
+    alpha = np.interp(driver_torque, [params.STEER_THRESHOLD * .8, params.STEER_THRESHOLD * 2], [0.02, 0.1])
 
   # Smooth transition (like a rubber band returning)
   new_gain = apply_torque_last + alpha * (target_gain - apply_torque_last)
@@ -177,8 +196,8 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
       self.angle_enable_smoothing_factor = self._params.get_bool("EnableHkgTuningAngleSmoothingFactor")
 
     self.angle_torque_reduction_gain_controller = TorqueReductionGainController(
-      angle_threshold=.3,
-      debounce_time=.1,
+      angle_threshold=0.2, #.3,
+      debounce_time=0.03,#.1,
       min_gain=self.params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN,
       max_gain=self.params.ANGLE_MAX_TORQUE_REDUCTION_GAIN,
       ramp_up_rate=self.params.ANGLE_RAMP_UP_TORQUE_REDUCTION_RATE,
@@ -209,6 +228,14 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
       desired_angle = np.clip(actuators.steeringAngleDeg, -self.params.ANGLE_LIMITS.STEER_ANGLE_MAX, self.params.ANGLE_LIMITS.STEER_ANGLE_MAX)
 
       if self.angle_enable_smoothing_factor and abs(v_ego_raw) < CarControllerParams.SMOOTHING_ANGLE_MAX_VEGO:
+        # ===== 정차 시 각도 변화 억제 (추가!) =====
+        if abs(v_ego_raw) < 0.5:  # 1.8km/h 이하
+          # 목표 각도를 현재 각도에 가깝게 제한하여 급격한 변화 방지
+          angle_diff = desired_angle - self.apply_angle_last
+          max_change = 2.0  # 최대 2도까지만 변화 허용
+          if abs(angle_diff) > max_change:
+            desired_angle = self.apply_angle_last + (max_change if angle_diff > 0 else -max_change)
+        
         desired_angle = sp_smooth_angle(v_ego_raw, desired_angle, self.apply_angle_last)
 
       apply_angle = apply_steer_angle_limits_vm(desired_angle, self.apply_angle_last, v_ego_raw, CS.out.steeringAngleDeg, CC.latActive, self.params, self.VM)
@@ -224,6 +251,11 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
         actual_angle=CS.out.steeringAngleDeg,
         lat_active=CC.latActive
       )
+
+       # ===== 정차 시 추가 안전장치 =====
+      if CS.out.vEgo < 0.2 and CS.out.standstill:
+        # 완전 정지 시: 강제로 ACTIVE 게인 적용
+        target_torque_reduction_gain = self.params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN
 
       # This method ensures that the torque gives up when overriding and controls the ramp rate to avoid feeling jittery.
       apply_torque = calculate_angle_torque_reduction_gain(self.params, CS, self.apply_torque_last, target_torque_reduction_gain)
