@@ -1127,6 +1127,12 @@ FW_VERSIONS = {
     (Ecu.fwdCamera, 0x7c4, None): [
       b'\xf1\x00ME  MFC  AT KOR LHD 1.00 1.01 99211-GO000 250103',
     ],
+    (Ecu.adas, 0x730, None): [
+      b'\xf1\x00ME  FBL5 1.00 1.01 250122',
+    ],
+    (Ecu.hvac, 0x7B3, None): [
+      b"\xf1\x00ME    97255-GO000CONTROL ASS'Y-DATC  1.03.00_v24.05.02        ",
+    ],
   },
   CAR.HYUNDAI_TUCSON_4TH_GEN: {
     (Ecu.fwdCamera, 0x7c4, None): [
