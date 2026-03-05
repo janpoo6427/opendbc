@@ -48,31 +48,35 @@ def get_baseline_safety_cp():
 
 
 def calculate_angle_torque_reduction_gain(params, CS, apply_torque_last, target_torque_reduction_gain):
-  """ 속도 기반 가변 토크 게인으로 저속 MDPS 소음 해결 """
+  """Solving low-speed EPS noise with speed-based variable torque gain"""
   v_ego_raw = CS.out.vEgoRaw
-  v_kph = v_ego_raw * 3.6
   
-  # 핵심 개선: 속도 기반 Active Torque 가변 적용
-  # janpoo6427님이 발견한 "0.1에서 소음 감소" 현상 활용
-  low_speed_gain = params.ANGLE_MIN_TORQUE_REDUCTION_GAIN    # 정지/저속: 매우 부드러운 토크
-  high_speed_gain = params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN  # 고속: 기존 설정값
+  # Key Improvement: Speed-Based Active Torque Variation
+  low_speed_gain = 0.5 # params.ANGLE_MIN_TORQUE_REDUCTION_GAIN # Stop/low speed: Very smooth torque
+  high_speed_gain = params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN # High speed: Default settings
   
-  # 0-36km/h 구간에서 점진적 전환 (도심 주행 완전 커버)
-  current_active_gain = np.interp(v_kph, [0, 10, 36], 
+  # Base torque at different speeds (dynamic lower limit)
+  current_active_gain = np.interp(v_ego_raw, [0, 2.78, 10], 
                                  [low_speed_gain, low_speed_gain * 2, high_speed_gain])
 
-  target_gain = max(target_torque_reduction_gain, current_active_gain)
+  # Key addition: Maximum allowable torque at each speed (dynamic upper limit)
+  # speed_based_max_gain = np.interp(v_ego_raw, 
+  #                                 [0, 2.2, 4.1, 8.33, 16],
+  #                                 [0.15, 0.20, 0.35, 0.60, params.ANGLE_MAX_TORQUE_REDUCTION_GAIN])
+
+
+  target_gain = max(target_torque_reduction_gain, current_active_gain) # or speed_based_max_gain
 
   driver_torque = abs(CS.out.steeringTorque)
   
-  # 저속에서 더 부드러운 Alpha 전환
+  # Smoother Alpha transitions at low speeds
   base_alpha = np.interp(driver_torque, [params.STEER_THRESHOLD * .8, params.STEER_THRESHOLD * 2], [0.02, 0.1])
-  speed_alpha_factor = np.interp(v_kph, [0, 30], [0.6, 1.0])  # 저속에서 더 느린 변화
+  speed_alpha_factor = np.interp(v_ego_raw, [0, 8.5], [0.6, 1.0])  # Slower changes at low speeds
   alpha = base_alpha * speed_alpha_factor
 
   if CS.out.steeringPressed:
-    # 저속에서 더 부드러운 Override 반응
-    scale = np.interp(v_kph, [0, 30, 60], [130, 100, 80])
+    # Smoother Override response at low speeds
+    scale = np.interp(v_ego_raw, [0, 8.5, 16.67], [130, 100, 80])
     clamped_torque_gain = max(apply_torque_last, current_active_gain)
     target_gain = params.ANGLE_MIN_TORQUE_REDUCTION_GAIN + (clamped_torque_gain - params.ANGLE_MIN_TORQUE_REDUCTION_GAIN) \
                   * math.exp(-(driver_torque - params.STEER_THRESHOLD) / scale)
@@ -85,54 +89,54 @@ def calculate_angle_torque_reduction_gain(params, CS, apply_torque_last, target_
 
 def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: float) -> float:
   """
-  IONIQ 9 MDPS 소음 해결을 위한 안전한 각도 스무딩
-  
-  핵심 개선사항:
-  - Hard deadband 완전 제거 → 저속 조향 불능 방지
-  - 모델 jitter와 실제 조향 의도 구분
-  - SMOOTHING_ANGLE_VEGO_MATRIX [0, 8.5, 11, 13.8, 22.22] 전 구간 활용
-  - 최소 5% 반영 보장으로 안전성 확보
+  Safe Angle Smoothing to Address IONIQ 9 MDPS Noise
+
+  Key Improvements:
+  - Completely Eliminate Hard Deadband → Prevent Low-Speed ​​Steering Failure
+  - Distinguish Model Jitter from Actual Steering Intention
+  - Utilizes the Full Range of SMOOTHING_ANGLE_VEGO_MATRIX [0, 8.5, 11, 13.8, 22.22]
+  - Ensures Safety with a Guaranteed Reflection of at Least 5%
   """
   angle_diff = apply_angle - apply_angle_last
   abs_diff = abs(angle_diff)
   
-  # 1. 기본 Alpha 계산 (기존 테이블 활용)
+  # 1. Basic Alpha Calculation (Using Existing Matrix)
   base_alpha = np.interp(v_ego_raw, 
                         CarControllerParams.SMOOTHING_ANGLE_VEGO_MATRIX, 
                         CarControllerParams.SMOOTHING_ANGLE_ALPHA_MATRIX)
   
-  # 2. 속도별 노이즈 임계값 설정 (보수적 설정으로 안전성 우선)
-  # VEGO_MATRIX = [0, 8.5, 11, 13.8, 22.22] m/s 대응
-  noise_thresholds = [0.12, 0.10, 0.08, 0.06, 0.04]  # 이 이하는 모델 jitter로 간주
-  significant_thresholds = [1.0, 0.8, 0.6, 0.4, 0.3]  # 이 이상은 확실한 조향 의도
+  # 2. Set the noise threshold by speed (conservative settings prioritize safety)
+  # VEGO_MATRIX = [0, 8.5, 11, 13.8, 22.22] m/s
+  noise_thresholds = [0.12, 0.10, 0.08, 0.06, 0.04]  # Below this is considered model jitter
+  significant_thresholds = [1.0, 0.8, 0.6, 0.4, 0.3]  # This is a clear steering intention
   
   noise_threshold = np.interp(v_ego_raw, CarControllerParams.SMOOTHING_ANGLE_VEGO_MATRIX, noise_thresholds)
   significant_threshold = np.interp(v_ego_raw, CarControllerParams.SMOOTHING_ANGLE_VEGO_MATRIX, significant_thresholds)
   
-  # 3. 3단계 Soft Damping 로직 (완전 차단 없음)
+  # 3. 3-stage soft damping logic (no complete blocking)
   if abs_diff >= significant_threshold:
-    # 큰 각도 변화: 실제 조향 의도로 판단, 즉시 반응
+    # Large angle change: judged based on actual steering intention, immediate response
     scale_factor = 1.0
     
   elif abs_diff <= noise_threshold:
-    # 미세한 떨림: 모델 jitter로 판단, 강하게 억제 (하지만 완전 차단 안 함)
-    scale_factor = 0.18  # 18%만 반영하여 MDPS 소음 억제
+    # Subtle tremor: judged by model jitter, strongly suppressed (but not completely blocked)
+    scale_factor = 0.18  # EPS noise suppression by reflecting only 18%
     
   else:
-    # 중간 영역: 부드러운 점진적 전환
+    # Middle area: smooth gradual transitions
     ratio = (abs_diff - noise_threshold) / (significant_threshold - noise_threshold)
-    # 18% → 100% 사이를 부드럽게 보간 (수학적 곡선 적용)
+    # Smooth interpolation between 18% and 100% (mathematical curve applied)
     scale_factor = 0.18 + 0.82 * (ratio / (ratio + 0.5))
   
   adjusted_alpha = base_alpha * scale_factor
   
-  # 4. 저속 구간 추가 보정 (0-30km/h에서 더 부드럽게)
+  # 4. Additional correction for low-speed sections (smoother from 0-30 km/h)
   if v_ego_raw <= CarControllerParams.SMOOTHING_ANGLE_VEGO_MATRIX[1]:  # 8.5 m/s 이하
     low_speed_factor = np.interp(v_ego_raw, [0, 8.5], [0.5, 0.9])
     adjusted_alpha *= low_speed_factor
   
-  # 5. 안전장치: 최소 반영률 보장 (조향 불능 방지)
-  final_alpha = float(np.clip(adjusted_alpha, 0.05, 1.0))  # 최소 5% 반영
+  # 5. Safety device: Ensures minimum reflection rate (prevents loss of steering)
+  final_alpha = float(np.clip(adjusted_alpha, 0.05, 1.0))  # Minimum 5% reflection
   
   return (apply_angle * final_alpha) + (apply_angle_last * (1.0 - final_alpha))
 
@@ -222,7 +226,7 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
     self.angle_torque_reduction_gain_controller = TorqueReductionGainController(
       angle_threshold=.3,
       debounce_time=.1,
-      min_gain=self.params.ANGLE_MIN_TORQUE_REDUCTION_GAIN,
+      min_gain= 0 #self.params.ANGLE_MIN_TORQUE_REDUCTION_GAIN,
       max_gain=self.params.ANGLE_MAX_TORQUE_REDUCTION_GAIN,
       ramp_up_rate=self.params.ANGLE_RAMP_UP_TORQUE_REDUCTION_RATE,
       ramp_down_rate=self.params.ANGLE_RAMP_DOWN_TORQUE_REDUCTION_RATE
