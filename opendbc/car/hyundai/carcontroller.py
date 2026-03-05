@@ -60,27 +60,7 @@ def calculate_angle_torque_reduction_gain(params, CS, apply_torque_last, target_
     clamped_torque_gain = max(apply_torque_last, params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN)
     target_gain = params.ANGLE_MIN_TORQUE_REDUCTION_GAIN + (clamped_torque_gain - params.ANGLE_MIN_TORQUE_REDUCTION_GAIN) \
                   * math.exp(-(driver_torque - params.STEER_THRESHOLD) / scale)
-  
-  # ========== [2] 통합 오버슈트 방지 (추가) ==========
-  # 현재 조향 상태를 간접적으로 분석하여 오버슈트 가능성 판단
-  current_angle = CS.out.steeringAngleDeg
-  
-  # 큰 조향각에서 토크가 높으면 오버슈트 가능성 있음
-  if abs(current_angle) > 8.0 and target_gain > 0.7:
-    # 조향각이 클수록 토크를 점진적으로 감쇠
-    angle_damping = np.interp(abs(current_angle), [8.0, 20.0, 40.0], [1.0, 0.9, 0.8])
-    target_gain *= angle_damping
-  
-  # 운전자 개입이 없는 상태에서 급격한 토크 변화 방지
-  if not CS.out.steeringPressed:
-    torque_change = abs(target_gain - apply_torque_last)
-    if torque_change > 0.3:  # 급격한 변화 감지
-      # 변화율을 제한하여 부드러운 전환
-      max_change = 0.15  # 프레임당 최대 변화량
-      if target_gain > apply_torque_last:
-        target_gain = min(target_gain, apply_torque_last + max_change)
-      else:
-        target_gain = max(target_gain, apply_torque_last - max_change)
+
 
   # ========== [3] 부드러운 전환 (기존 로직) ==========
   new_gain = apply_torque_last + alpha * (target_gain - apply_torque_last)
