@@ -41,6 +41,23 @@ MAX_ANGLE_CONSECUTIVE_FRAMES = 2
 MAX_ANGLE_RATE = 5
 ANGLE_SAFETY_BASELINE_MODEL = "KIA_SPORTAGE_HEV_2026"
 
+# ========== 헌팅 억제 고정 상수 (튜닝 불필요) ==========
+# 동적 스무딩
+SMOOTHING_DYNAMIC_GAIN = 1.5              # 에러에 따른 스무딩 약화 게인
+SMOOTHING_ERROR_THRESHOLD = 4.0           # 최대 약화 도달 에러값 (deg)
+
+# 에러 부스트
+ERROR_BOOST_THRESHOLD = 3.5               # 최대 부스트 도달 에러값 (deg)
+
+# 오버슈트 감쇠
+OVERSHOOT_MIN_ERROR = 1.2                 # 감쇠 시작 에러값 (deg)
+OVERSHOOT_MAX_ERROR = 4.0                 # 최대 감쇠 적용 에러값 (deg)
+OVERSHOOT_MIN_SPEED = 3.0                 # 감쇠 적용 최소 속도 (m/s)
+
+# 파일 상단에 추가
+MIN_SMOOTHING_ALPHA = 0.05
+MAX_SMOOTHING_ALPHA = 1.0
+
 
 def get_baseline_safety_cp():
   from opendbc.car.hyundai.interface import CarInterface
@@ -66,32 +83,42 @@ def calculate_angle_torque_reduction_gain(params, CS, apply_torque_last, target_
   return float(np.clip(new_gain, params.ANGLE_MIN_TORQUE_REDUCTION_GAIN, params.ANGLE_MAX_TORQUE_REDUCTION_GAIN))
 
 
-def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: float) -> float:
-  """
-  Smooth the steering angle change based on vehicle speed and an optional smoothing offset.
+# def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: float) -> float:
+#   """
+#   Smooth the steering angle change based on vehicle speed and an optional smoothing offset.
 
-  This function helps prevent abrupt steering changes by blending the new desired angle (`apply_angle`)
-  with the previously applied angle (`apply_angle_last`). The blend factor (alpha) is dynamically calculated
-  based on the vehicle's current speed using a predefined lookup table.
+#   This function helps prevent abrupt steering changes by blending the new desired angle (`apply_angle`)
+#   with the previously applied angle (`apply_angle_last`). The blend factor (alpha) is dynamically calculated
+#   based on the vehicle's current speed using a predefined lookup table.
 
-  Behavior:
-    - At low speeds, the smoothing is strong, keeping the steering more stable.
-    - At higher speeds, the smoothing is relaxed, allowing quicker responses.
-    - If the angle change is negligible (≤ 0.1 deg), smoothing is skipped for responsiveness.
+#   Behavior:
+#     - At low speeds, the smoothing is strong, keeping the steering more stable.
+#     - At higher speeds, the smoothing is relaxed, allowing quicker responses.
+#     - If the angle change is negligible (≤ 0.1 deg), smoothing is skipped for responsiveness.
 
-  Parameters:
-    v_ego_raw (float): Raw vehicle speed in m/s.
-    apply_angle (float): New target steering angle in degrees.
-    apply_angle_last (float): Previously applied steering angle in degrees.
+#   Parameters:
+#     v_ego_raw (float): Raw vehicle speed in m/s.
+#     apply_angle (float): New target steering angle in degrees.
+#     apply_angle_last (float): Previously applied steering angle in degrees.
 
-  Returns:
-    float: Smoothed steering angle.
-  """
-  if abs(apply_angle - apply_angle_last) > 0.1:
-    adjusted_alpha = np.interp(v_ego_raw, CarControllerParams.SMOOTHING_ANGLE_VEGO_MATRIX, CarControllerParams.SMOOTHING_ANGLE_ALPHA_MATRIX)
-    adjusted_alpha_limited = float(min(float(adjusted_alpha), 1.))  # Limit the smoothing factor to 1 if adjusted_alpha is greater than 1
-    return (apply_angle * adjusted_alpha_limited) + (apply_angle_last * (1 - adjusted_alpha_limited))
-  return apply_angle
+#   Returns:
+#     float: Smoothed steering angle.
+#   """
+#   if abs(apply_angle - apply_angle_last) > 0.1:
+#     adjusted_alpha = np.interp(v_ego_raw, CarControllerParams.SMOOTHING_ANGLE_VEGO_MATRIX, CarControllerParams.SMOOTHING_ANGLE_ALPHA_MATRIX)
+#     adjusted_alpha_limited = float(min(float(adjusted_alpha), 1.))  # Limit the smoothing factor to 1 if adjusted_alpha is greater than 1
+#     return (apply_angle * adjusted_alpha_limited) + (apply_angle_last * (1 - adjusted_alpha_limited))
+#   return apply_angle
+
+# sp_smooth_angle 함수 변경
+def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: float, 
+                            dynamic_factor: float = 1.0, params=None) -> float:
+    """Enhanced smoothing with dynamic factor support"""
+    if abs(apply_angle - apply_angle_last) > 0.1:
+        base_alpha = np.interp(v_ego_raw, params.SMOOTHING_ANGLE_VEGO_MATRIX, params.SMOOTHING_ANGLE_ALPHA_MATRIX)
+        adjusted_alpha = float(np.clip(base_alpha * dynamic_factor, MIN_SMOOTHING_ALPHA, MAX_SMOOTHING_ALPHA))
+        return (apply_angle * adjusted_alpha) + (apply_angle_last * (1 - adjusted_alpha))
+    return apply_angle
 
 
 def process_hud_alert(enabled, fingerprint, hud_control):
@@ -175,6 +202,26 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
 
       self.params.ANGLE_TORQUE_OVERRIDE_CYCLES = int(self._params.get("HkgTuningOverridingCycles") or self.params.ANGLE_TORQUE_OVERRIDE_CYCLES)
       self.angle_enable_smoothing_factor = self._params.get_bool("EnableHkgTuningAngleSmoothingFactor")
+      # 헌팅 억제 파라미터 (새로 추가)
+      try:
+        # Rate Limit 값들 "2.2,3.0,4.0,5.0" 형태로 입력
+        rate_override = self._params.get("HkgAngleRateBaseValues")
+        if rate_override:
+          values = [float(x) for x in rate_override.decode().split(',')]
+          if len(values) == 4:
+            self.params.ANGLE_RATE_BASE_VALUES = values
+        
+        # Error Boost Gain (100 = 1.0배)
+        boost_override = self._params.get("HkgAngleErrorBoostGain")
+        if boost_override:
+          self.params.ANGLE_ERROR_BOOST_GAIN = float(boost_override) / 100.0
+        
+        # Overshoot Damping (75 = 0.75)
+        damping_override = self._params.get("HkgAngleOvershotDamping")
+        if damping_override:
+          self.params.ANGLE_OVERSHOOT_DAMPING_FACTOR = float(damping_override) / 100.0
+      except Exception:
+        pass  # 파싱 실패 시 기본값 사용
 
     self.angle_torque_reduction_gain_controller = TorqueReductionGainController(
       angle_threshold=.3,
@@ -206,39 +253,75 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
     # angle control
     else:
       v_ego_raw = CS.out.vEgoRaw
-      desired_angle = np.clip(actuators.steeringAngleDeg, -self.params.ANGLE_LIMITS.STEER_ANGLE_MAX, self.params.ANGLE_LIMITS.STEER_ANGLE_MAX)
+      current_angle = CS.out.steeringAngleDeg
+      
+      desired_angle = np.clip(actuators.steeringAngleDeg,
+                              -self.params.ANGLE_LIMITS.STEER_ANGLE_MAX,
+                              self.params.ANGLE_LIMITS.STEER_ANGLE_MAX)
 
-      if self.angle_enable_smoothing_factor and abs(v_ego_raw) < CarControllerParams.SMOOTHING_ANGLE_MAX_VEGO:
-        desired_angle = sp_smooth_angle(v_ego_raw, desired_angle, self.apply_angle_last)
+      # ========== [1] 에러 기반 동적 스무딩 ==========
+      if self.angle_enable_smoothing_factor and abs(v_ego_raw) < self.params.SMOOTHING_ANGLE_MAX_VEGO:
+        steering_error = abs(desired_angle - current_angle)
+        dynamic_factor = 1.0 + SMOOTHING_DYNAMIC_GAIN * np.clip(steering_error / SMOOTHING_ERROR_THRESHOLD, 0.0, 1.0)
+        desired_angle = sp_smooth_angle(v_ego_raw, desired_angle, self.apply_angle_last, 
+                                              dynamic_factor, self.params)
 
-      apply_angle = apply_steer_angle_limits_vm(desired_angle, self.apply_angle_last, v_ego_raw, CS.out.steeringAngleDeg, CC.latActive, self.params, self.VM)
+      # ========== [2] 에러 기반 적응형 Rate Limiter (Params 적용) ==========
+      if self.frame > 0:  # 첫 프레임 이후에만 실행 (더 명확)
+        # Params에서 가져온 속도별 기본 rate limit
+        base_rate = np.interp(abs(v_ego_raw), 
+                             self.params.ANGLE_RATE_VEGO_BP, 
+                             self.params.ANGLE_RATE_BASE_VALUES)
+        
+        # Params에서 가져온 에러 부스트, 상수 임계값 사용
+        current_error = abs(desired_angle - current_angle)
+        error_boost = 1.0 + self.params.ANGLE_ERROR_BOOST_GAIN * \
+                      np.clip(current_error / ERROR_BOOST_THRESHOLD, 0.0, 1.0)
+        
+        effective_max_rate = base_rate * error_boost
+        max_delta = effective_max_rate * DT_CTRL
+        delta = desired_angle - self.apply_angle_last
+        desired_angle = self.apply_angle_last + np.clip(delta, -max_delta, max_delta)
 
-      # if we are not the baseline model, we use the baseline model for further limits to prevent a panda block since it is hardcoded for baseline model.
+      # ========== [3] 기본 안전 제한 (기존 로직 유지) ==========
+      apply_angle = apply_steer_angle_limits_vm(desired_angle, self.apply_angle_last, v_ego_raw,
+                                                current_angle, CC.latActive, self.params, self.VM)
+
       if self.CP.carFingerprint != ANGLE_SAFETY_BASELINE_MODEL:
-        apply_angle = apply_steer_angle_limits_vm(apply_angle or desired_angle, self.apply_angle_last, v_ego_raw, CS.out.steeringAngleDeg, CC.latActive,
-                                                  self.params, self.BASELINE_VM)
+        apply_angle = apply_steer_angle_limits_vm(apply_angle or desired_angle, self.apply_angle_last, v_ego_raw,
+                                                  current_angle, CC.latActive, self.params, self.BASELINE_VM)
 
-      # Use saturation-based torque reduction gain
+      # ========== [4] 에러 기반 토크 감쇠 (Params 적용) ==========
       target_torque_reduction_gain = self.angle_torque_reduction_gain_controller.update(
         last_requested_angle=self.apply_angle_last,
-        actual_angle=CS.out.steeringAngleDeg,
+        actual_angle=current_angle,
         lat_active=CC.latActive
       )
 
-      # This method ensures that the torque gives up when overriding and controls the ramp rate to avoid feeling jittery.
-      apply_torque = calculate_angle_torque_reduction_gain(self.params, CS, self.apply_torque_last, target_torque_reduction_gain)
+      if apply_angle is not None:
+        angle_error = abs(apply_angle - current_angle)
+        # 상수 임계값, Params 감쇠 비율 사용
+        if angle_error > OVERSHOOT_MIN_ERROR and v_ego_raw > OVERSHOOT_MIN_SPEED:
+          damping_factor = np.interp(angle_error,
+                                     [OVERSHOOT_MIN_ERROR, OVERSHOOT_MAX_ERROR],
+                                     [1.0, self.params.ANGLE_OVERSHOOT_DAMPING_FACTOR])
+          target_torque_reduction_gain *= damping_factor
 
-      # apply_steer_req is True when we are actively attempting to steer and under the angle limit. Otherwise the user is overriding.
+      # ========== [5] 최종 토크 계산 및 출력 ==========
+      apply_torque = calculate_angle_torque_reduction_gain(
+        self.params, CS, self.apply_torque_last, target_torque_reduction_gain
+      )
+
       apply_steer_req = CC.latActive and apply_torque != 0
 
-      # Failsafe if we detected we'd violate safety
       if apply_angle is None:
         apply_torque = 0
-        apply_angle = CS.out.steeringAngleDeg
+        apply_angle = current_angle
         apply_steer_req = False
 
-      # After we've used the last angle wherever we needed it, we now update it.
       self.apply_angle_last = apply_angle
+
+
 
     if not CC.latActive:
       apply_torque = 0

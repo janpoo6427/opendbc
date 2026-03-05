@@ -66,6 +66,20 @@ class CarControllerParams:
   SMOOTHING_ANGLE_ALPHA_MATRIX = [0.05, 0.1, 0.3, 0.6, 1]
   SMOOTHING_ANGLE_MAX_VEGO = SMOOTHING_ANGLE_VEGO_MATRIX[-1]
 
+
+  # ========== 헌팅 억제 튜닝 파라미터 (차량별 조정 가능) ==========
+  
+  # [1] 속도별 기본 Rate Limit (deg/s) - 직진 안정성 핵심
+  ANGLE_RATE_VEGO_BP = [0., 5., 15., 30.]              # 속도 구간점 (m/s)
+  ANGLE_RATE_BASE_VALUES = [2.2, 3.0, 4.0, 5.0]       # 기본값 (균형잡힌 설정)
+  
+  # [2] 에러 기반 Rate Boost - 커브/복귀 반응성
+  ANGLE_ERROR_BOOST_GAIN = 1.2          # 최대 2.2배 부스트 (1.0 + 1.2)
+  
+  # [3] 오버슈트 감쇠 비율 - 진동 억제 강도  
+  ANGLE_OVERSHOOT_DAMPING_FACTOR = 0.75 # 최대 25% 토크 감쇠
+
+  
   def __init__(self, CP):
     self.STEER_DELTA_UP = 3
     self.STEER_DELTA_DOWN = 7
