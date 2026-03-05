@@ -226,7 +226,7 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
     self.angle_torque_reduction_gain_controller = TorqueReductionGainController(
       angle_threshold=.3,
       debounce_time=.1,
-      min_gain= .0 #self.params.ANGLE_MIN_TORQUE_REDUCTION_GAIN,
+      min_gain= .0, #self.params.ANGLE_MIN_TORQUE_REDUCTION_GAIN,
       max_gain=self.params.ANGLE_MAX_TORQUE_REDUCTION_GAIN,
       ramp_up_rate=self.params.ANGLE_RAMP_UP_TORQUE_REDUCTION_RATE,
       ramp_down_rate=self.params.ANGLE_RAMP_DOWN_TORQUE_REDUCTION_RATE
