@@ -60,6 +60,10 @@ class CarControllerParams:
 
   ANGLE_TORQUE_OVERRIDE_CYCLES = 17  # Number of control cycles over which torque ramps down to minimum after driver override is detected.
 
+  # 헌팅 억제 튜닝 파라미터
+  ANGLE_SENSITIVITY = 1.0  # 0.5~1.5  defalut : 1.0 # 전체 반응성 조절 (0.7-1.3 권장)
+  ANGLE_DEADZONE = 0.0     # 0~0.3  defalut : 0.0 # 미세 움직임 필터 (0.0-0.2 권장)
+
   # More torque optimization
   # The torque is calculated based on the curvature of the road and the speed of the car and it's a percentage of the maximum torque.
   SMOOTHING_ANGLE_VEGO_MATRIX = [0, 8.5, 11, 13.8, 22.22]
