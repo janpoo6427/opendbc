@@ -189,8 +189,8 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
       self.angle_enable_smoothing_factor = self._params.get_bool("EnableHkgTuningAngleSmoothingFactor")
 
       
-      # self.params.ANGLE_SENSITIVITY = float(self._params.get("HkgTuningAngleSensitivity")) or self.params.ANGLE_SENSITIVITY
-      # self.params.ANGLE_DEADZONE = float(self._params.get("HkgTuningAngleDeadzone")) or self.params.ANGLE_DEADZONE      
+      self.params.ANGLE_SENSITIVITY = float(self._params.get("HkgTuningAngleSensitivity")) or self.params.ANGLE_SENSITIVITY
+      self.params.ANGLE_DEADZONE = float(self._params.get("HkgTuningAngleDeadzone")) or self.params.ANGLE_DEADZONE      
 
 
     self.angle_torque_reduction_gain_controller = TorqueReductionGainController(
