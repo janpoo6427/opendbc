@@ -274,16 +274,16 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
       self.angle_enable_smoothing_factor = self._params.get_bool("EnableHkgTuningAngleSmoothingFactor")
 
 
-      self.params.ANGLE_ANTI_HUNTING_THRESHOLD = parse_tq_rdc_gain(
-        self._params.get("HkgTuningAngleAntiHuntingThreshold")) or self.params.ANGLE_ANTI_HUNTING_THRESHOLD
+      #self.params.ANGLE_ANTI_HUNTING_THRESHOLD = parse_tq_rdc_gain(
+      #  self._params.get("HkgTuningAngleAntiHuntingThreshold")) or self.params.ANGLE_ANTI_HUNTING_THRESHOLD
       
-      self.params.ANGLE_STEERING_REACTIVITY_SCALE = parse_tq_rdc_gain(
-        self._params.get("HkgTuningAngleSteeringReactivityScale")) or self.params.ANGLE_STEERING_REACTIVITY_SCALE
+      #self.params.ANGLE_STEERING_REACTIVITY_SCALE = parse_tq_rdc_gain(
+      #  self._params.get("HkgTuningAngleSteeringReactivityScale")) or self.params.ANGLE_STEERING_REACTIVITY_SCALE
 
-      self.params.ANGLE_MAX_STEERING_RATE_SCALE = parse_tq_rdc_gain(
-        self._params.get("HkgTuningAngleMaxSteeringRateScale")) or self.params.ANGLE_MAX_STEERING_RATE_SCALE
-      self.params.ANGLE_TORQUE_GAIN_RECOVERY_SCALE = parse_tq_rdc_gain(
-        self._params.get("HkgTuningAngleTorqueGainRecoveryScale")) or self.params.ANGLE_TORQUE_GAIN_RECOVERY_SCALE
+      #self.params.ANGLE_MAX_STEERING_RATE_SCALE = parse_tq_rdc_gain(
+      #  self._params.get("HkgTuningAngleMaxSteeringRateScale")) or self.params.ANGLE_MAX_STEERING_RATE_SCALE
+      #self.params.ANGLE_TORQUE_GAIN_RECOVERY_SCALE = parse_tq_rdc_gain(
+      #  self._params.get("HkgTuningAngleTorqueGainRecoveryScale")) or self.params.ANGLE_TORQUE_GAIN_RECOVERY_SCALE
       
       # 파라미터 변경 시 게인 관련 내부 상태 동기화
       self.apply_gain_last = self.params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN
