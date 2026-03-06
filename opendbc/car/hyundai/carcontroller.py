@@ -251,6 +251,8 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
     # For future parametrization / tuning
     self.angle_enable_smoothing_factor = True
 
+    self.frame = 0
+
     self._params = Params() if PARAMS_AVAILABLE else None
     if PARAMS_AVAILABLE:
       self.params.ANGLE_MIN_TORQUE_REDUCTION_GAIN = parse_tq_rdc_gain(
@@ -277,7 +279,7 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
       ramp_down_rate=self.params.ANGLE_RAMP_DOWN_TORQUE_REDUCTION_RATE
     )
 
-  def update(self, CC, CC_SP, CS, now_nanos):
+def update(self, CC, CC_SP, CS, now_nanos):
     EsccCarController.update(self, CS)
     LeadDataCarController.update(self, CC_SP)
     MadsCarController.update(self, self.CP, CC, CC_SP, self.frame)
@@ -287,16 +289,21 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
     actuators = CC.actuators
     hud_control = CC.hudControl
 
+    # 변수 초기화 (안전장치)
+    apply_steer_req = False
+    apply_torque = 0
+    torque_fault = False
+
     # steering torque
     if not self.CP.flags & HyundaiFlags.CANFD_ANGLE_STEERING:
       # ===== Legacy 토크 기반 제어 =====
-      self.angle_limit_counter, apply_steer_req = common_fault_avoidance(abs(CS.out.steeringAngleDeg) >= MAX_ANGLE, CC.latActive,
-                                                                         self.angle_limit_counter, MAX_ANGLE_FRAMES,
-                                                                         MAX_ANGLE_CONSECUTIVE_FRAMES)
+      self.angle_limit_counter, apply_steer_req = common_fault_avoidance(
+          abs(CS.out.steeringAngleDeg) >= MAX_ANGLE, CC.latActive,
+          self.angle_limit_counter, MAX_ANGLE_FRAMES,
+          MAX_ANGLE_CONSECUTIVE_FRAMES)
       new_torque = int(round(actuators.torque * self.params.STEER_MAX))
-      apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last, CS.out.steeringTorque, self.params)
-
-    # angle control
+      apply_torque = apply_driver_steer_torque_limits(
+          new_torque, self.apply_torque_last, CS.out.steeringTorque, self.params)
       
       # 토크 기반 제어에서는 실제 토크값 저장
       self.apply_torque_last = apply_torque
@@ -307,46 +314,46 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
     else:
       # ===== CAN FD 각도 기반 제어 =====
       v_ego_raw = CS.out.vEgoRaw
-      desired_angle = np.clip(actuators.steeringAngleDeg, -self.params.ANGLE_LIMITS.STEER_ANGLE_MAX, self.params.ANGLE_LIMITS.STEER_ANGLE_MAX)
+      desired_angle = np.clip(
+          actuators.steeringAngleDeg, 
+          -self.params.ANGLE_LIMITS.STEER_ANGLE_MAX, 
+          self.params.ANGLE_LIMITS.STEER_ANGLE_MAX)
 
       if self.angle_enable_smoothing_factor and abs(v_ego_raw) < CarControllerParams.SMOOTHING_ANGLE_MAX_VEGO:
         desired_angle = sp_smooth_angle(v_ego_raw, desired_angle, self.apply_angle_last)
 
-      apply_angle = apply_steer_angle_limits_vm(desired_angle, self.apply_angle_last, v_ego_raw, CS.out.steeringAngleDeg, CC.latActive, self.params, self.VM)
+      apply_angle = apply_steer_angle_limits_vm(
+          desired_angle, self.apply_angle_last, v_ego_raw, 
+          CS.out.steeringAngleDeg, CC.latActive, self.params, self.VM)
 
-      # if we are not the baseline model, we use the baseline model for further limits
       if self.CP.carFingerprint != ANGLE_SAFETY_BASELINE_MODEL:
-        apply_angle = apply_steer_angle_limits_vm(apply_angle or desired_angle, self.apply_angle_last, v_ego_raw, CS.out.steeringAngleDeg, CC.latActive,
-                                                  self.params, self.BASELINE_VM)
+        apply_angle = apply_steer_angle_limits_vm(
+            apply_angle or desired_angle, self.apply_angle_last, v_ego_raw, 
+            CS.out.steeringAngleDeg, CC.latActive, self.params, self.BASELINE_VM)
 
-      # Use saturation-based torque reduction gain
       target_torque_reduction_gain = self.angle_torque_reduction_gain_controller.update(
         last_requested_angle=self.apply_angle_last,
         actual_angle=CS.out.steeringAngleDeg,
         lat_active=CC.latActive
       )
 
-      # 게인 계산 (0.0~1.0 범위)
-      apply_torque = calculate_angle_torque_reduction_gain(self.params, CS, self.apply_torque_last, target_torque_reduction_gain)
-
+      # ★ 핵심 수정: 올바른 변수 전달
+      apply_torque = calculate_angle_torque_reduction_gain(
+          self.params, CS, 
+          self.apply_gain_last,  # ← 게인값 전달 (0.0~1.0)
+          target_torque_reduction_gain)
 
       # 각도 기반 제어에서는 게인값 저장
       self.apply_gain_last = apply_torque
 
-
-      # apply_steer_req is True when we are actively attempting to steer
       apply_steer_req = CC.latActive and apply_torque > 0
 
-      # Failsafe if we detected we'd violate safety
       if apply_angle is None:
         apply_torque = 0
         apply_angle = CS.out.steeringAngleDeg
         apply_steer_req = False
 
-      # After we've used the last angle wherever we needed it, we now update it.
       self.apply_angle_last = apply_angle
-      
-      # CAN FD에서는 torque_fault 사용하지 않음
       torque_fault = False
 
     if not CC.latActive:
@@ -360,17 +367,13 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
     can_sends = []
 
     # *** common hyundai stuff ***
-
-    # tester present - w/ no response (keeps relevant ECU disabled)
     if self.frame % 100 == 0 and not ((self.CP.flags & HyundaiFlags.CANFD_CAMERA_SCC) or self.ESCC.enabled) and \
             self.CP.openpilotLongitudinalControl:
-      # for longitudinal control, either radar or ADAS driving ECU
       addr, bus = 0x7d0, self.CAN.ECAN if self.CP.flags & HyundaiFlags.CANFD else 0
       if self.CP.flags & HyundaiFlags.CANFD_LKA_STEERING.value:
         addr, bus = 0x730, self.CAN.ECAN
       can_sends.append(make_tester_present_msg(addr, bus, suppress_response=True))
 
-      # for blinkers
       if self.CP.flags & HyundaiFlags.ENABLE_BLINKERS:
         can_sends.append(make_tester_present_msg(0x7b1, self.CAN.ECAN, suppress_response=True))
 
@@ -382,24 +385,27 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
       can_sends.extend(self.create_can_msgs(apply_steer_req, apply_torque, torque_fault, set_speed_in_units, accel,
                                             stopping, hud_control, actuators, CS, CC))
 
-    # Intelligent Cruise Button Management
     can_sends.extend(IntelligentCruiseButtonManagementInterface.update(self, CS, CC_SP, self.packer, self.frame, self.last_button_frame, self.CAN))
 
     new_actuators = actuators.as_builder()
-    new_actuators.torque = apply_torque / self.params.STEER_MAX
-    new_actuators.torqueOutputCan = apply_torque
     
-    # 모드에 따른 적절한 각도 출력
+    # ★ 모드별 분리 처리
     if self.CP.flags & HyundaiFlags.CANFD_ANGLE_STEERING:
+      # 각도 모드: apply_torque는 게인값이므로 그대로 사용
+      new_actuators.torque = apply_torque
+      new_actuators.torqueOutputCan = apply_torque
       new_actuators.steeringAngleDeg = self.apply_angle_last
     else:
-      new_actuators.steeringAngleDeg = CS.out.steeringAngleDeg  # 토크 모드에서는 실제 각도
+      # 토크 모드: 정규화된 토크값 사용
+      new_actuators.torque = apply_torque / self.params.STEER_MAX
+      new_actuators.torqueOutputCan = apply_torque
+      new_actuators.steeringAngleDeg = CS.out.steeringAngleDeg
     
-    # 수정: 존재하지 않는 self.tuning.actual_accel 대신 계산된 accel 사용
     new_actuators.accel = accel
 
     self.frame += 1
     return new_actuators, can_sends
+
 
   def create_can_msgs(self, apply_steer_req, apply_torque, torque_fault, set_speed_in_units, accel, stopping, hud_control, actuators, CS, CC):
     can_sends = []
