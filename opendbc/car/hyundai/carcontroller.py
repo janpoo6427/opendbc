@@ -47,22 +47,51 @@ def get_baseline_safety_cp():
   return CarInterface.get_non_essential_params(ANGLE_SAFETY_BASELINE_MODEL)
 
 def calculate_angle_torque_reduction_gain(params, CS, apply_torque_last, target_torque_reduction_gain):
-  """ Calculate the angle torque reduction gain with integrated overshoot prevention. """
+  """ 
+  Natural torque control based on pure driver intent and physical limits.
   
-  # ========== [1] 기존 로직 완전 유지 ==========
+  Philosophy: Remove all artificial angle-based damping
+  Focus only on: 1) Driver safety 2) Smooth transitions 3) Physical limits
+  """
+  
+  # [1] 기본 게인 설정
+  if apply_gain_last <= 0:
+    apply_gain_last = params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN
   target_gain = max(target_torque_reduction_gain, params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN)
 
   driver_torque = abs(CS.out.steeringTorque)
-  alpha = np.interp(driver_torque, [params.STEER_THRESHOLD * .8, params.STEER_THRESHOLD * 2], [0.02, 0.1])
+  alpha = np.interp(driver_torque, [params.STEER_THRESHOLD * .8, params.STEER_THRESHOLD * 2], [0.05, 0.2])
 
+  # [2] 운전자 개입 시 토크 감쇠 (안전 필수)
   if CS.out.steeringPressed:
     scale = 100
     clamped_torque_gain = max(apply_torque_last, params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN)
     target_gain = params.ANGLE_MIN_TORQUE_REDUCTION_GAIN + (clamped_torque_gain - params.ANGLE_MIN_TORQUE_REDUCTION_GAIN) \
                   * math.exp(-(driver_torque - params.STEER_THRESHOLD) / scale)
+  
+  # [3] 인위적인 각도 기반 감쇠 완전 제거
+  # 조향 방향과 무관하게 EPS가 최대 성능을 발휘하도록 함
+  
+  # [4] 속도별 자연스러운 토크 변화 관리
+  v_ego = abs(CS.out.vEgoRaw)
+  
+  if not CS.out.steeringPressed:
+    torque_change = abs(target_gain - apply_torque_last)
+    
+    # 속도에 따른 허용 변화량 (물리적 한계 고려)
+    max_change = np.interp(v_ego, [1.0, 10.0, 30.0], [0.02, 0.15, 0.25])
+    
+    if torque_change > max_change * 2:
+      if target_gain > apply_torque_last:
+        target_gain = min(target_gain, apply_torque_last + max_change)
+      else:
+        target_gain = max(target_gain, apply_torque_last - max_change)
+        
+    # 저속에서 부드러운 전환 (정차 떨림 방지)
+    if v_ego < 2.0:
+      alpha *= 0.3
 
-
-  # ========== [3] 부드러운 전환 (기존 로직) ==========
+  # [5] 최종 적용
   new_gain = apply_torque_last + alpha * (target_gain - apply_torque_last)
 
   return float(np.clip(new_gain, params.ANGLE_MIN_TORQUE_REDUCTION_GAIN, params.ANGLE_MAX_TORQUE_REDUCTION_GAIN))
@@ -71,69 +100,81 @@ def calculate_angle_torque_reduction_gain(params, CS, apply_torque_last, target_
 
 def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: float) -> float:
   """
-  Intelligent hunting suppression with zero structural changes.
+  Unified continuous steering control with pure error-based response.
   
-  Core Innovation: Uses change magnitude + rate analysis to distinguish hunting from normal steering
-  - Small changes with low rate = Hunting → SUPPRESS STRONGLY  
-  - Large changes or high rate = Normal steering → RESPOND FAST
+  Design Philosophy: "Steering is just error correction"
+  - Large errors → Fast response (turning AND returning equally)
+  - Small errors → Hunting analysis → Selective control
+  - No artificial distinction between turning modes
   
-  All control logic integrated internally with no external dependencies.
+  Core Innovation: Pure magnitude-based reactivity without directional bias
   """
   
-  # ========== [1] 변화량 및 변화율 분석 (헌팅 감지 핵심) ==========
   angle_diff = abs(apply_angle - apply_angle_last)
   
-  # 극미세 변화는 완전 무시 (노이즈 레벨)
-  if angle_diff < 0.02:
+  # [1] 물리적 안정성 (정차 시 제어 중단)
+  if abs(v_ego_raw) < 0.5 and angle_diff < 0.2:
     return apply_angle_last
   
-  # 변화율 계산 (deg/s) - 헌팅은 작은 변화가 지속적으로 발생
-  angle_change_rate = angle_diff / DT_CTRL if DT_CTRL > 0 else 0.0
+  # [2] 노이즈 필터링 (MDPS 소음 방지)
+  if angle_diff < 0.03:
+    return apply_angle_last
   
-  # ========== [2] 지능형 반응성 계산 ==========
-  # 헌팅 특성: 작은 변화량(< 0.3deg) + 낮은 변화율(< 5deg/s)
-  # 정상 조향: 큰 변화량 또는 높은 변화율
-  
-  # 변화량 기반 팩터 (0.05deg 이하는 헌팅으로 간주)
-  magnitude_factor = np.interp(angle_diff, 
-                               [0.0, 0.05, 0.2, 0.5, 1.5, 5.0],
-                               [0.3, 0.4, 0.7, 1.0, 1.4, 1.6])
-  
-  # 변화율 기반 팩터 (5deg/s 이하는 헌팅 가능성 높음)
-  rate_factor = np.interp(angle_change_rate,
-                         [0.0, 2.0, 5.0, 10.0, 20.0],
-                         [0.5, 0.7, 1.0, 1.5, 2.0])
-  
-  # 최종 반응성 = 변화량 팩터 × 변화율 팩터
-  reactivity_factor = magnitude_factor * rate_factor
-  
-  # ========== [3] 적응형 스무딩 적용 ==========
-  if angle_diff > 0.08:
-    base_alpha = np.interp(v_ego_raw, 
-                          CarControllerParams.SMOOTHING_ANGLE_VEGO_MATRIX, 
-                          CarControllerParams.SMOOTHING_ANGLE_ALPHA_MATRIX)
+  # [3] 순수한 에러 크기 기반 반응성 결정 (핵심 철학)
+  # 복귀/회전 구분 없이 오직 변화량 크기로만 판단
+  if angle_diff > 0.5:
+    # 대형 조향 (급커브 진입/탈출, 큰 복귀 등)
+    reactivity_factor = 4.0
     
-    # 반응성이 낮으면 강한 스무딩 (헌팅 억제)
-    # 반응성이 높으면 약한 스무딩 (빠른 반응)
-    adjusted_alpha = float(np.clip(base_alpha * reactivity_factor, 0.05, 1.0))
+  elif angle_diff > 0.1:
+    # 일반 조향 (차선 유지, 완만한 조정)
+    reactivity_factor = np.interp(angle_diff, [0.1, 0.5], [2.5, 4.0])
+    
+  else:
+    # 미세 조향 (헌팅 가능성 구간)
+    try:
+      dt = DT_CTRL if DT_CTRL > 0 else 0.01
+    except NameError:
+      dt = 0.01
+      
+    angle_change_rate = angle_diff / dt
+    
+    # 작은 변화에서도 속도가 빠르면 정상 조향으로 판단
+    magnitude_factor = np.interp(angle_diff, [0.0, 0.05, 0.1], [0.6, 1.0, 2.5])
+    rate_factor = np.interp(angle_change_rate, [0.0, 3.0, 10.0], [0.7, 1.3, 2.2])
+    reactivity_factor = magnitude_factor * rate_factor
+
+  # [4] 반응성 기반 적응형 스무딩
+  if angle_diff > 0.08:
+    try:
+      smoothing_vego = CarControllerParams.SMOOTHING_ANGLE_VEGO_MATRIX
+      smoothing_alpha = CarControllerParams.SMOOTHING_ANGLE_ALPHA_MATRIX
+    except AttributeError:
+      smoothing_vego = [0, 8.5, 11, 13.8, 22.22]
+      smoothing_alpha = [0.05, 0.1, 0.3, 0.6, 1]
+    
+    base_alpha = np.interp(v_ego_raw, smoothing_vego, smoothing_alpha)
+    adjusted_alpha = float(np.clip(base_alpha * reactivity_factor, 0.2, 1.0))
+    
     smoothed_angle = (apply_angle * adjusted_alpha) + (apply_angle_last * (1.0 - adjusted_alpha))
   else:
     smoothed_angle = apply_angle
   
-  # ========== [4] 적응형 Rate Limiter ==========
-  # 속도별 기본 rate limit
-  base_rate = np.interp(abs(v_ego_raw), [0., 10., 20., 30.], [3.0, 4.5, 6.0, 8.0])
+  # [5] 통합 Rate Limiter (방향 무관)
+  base_rate = np.interp(abs(v_ego_raw), [0., 10., 20., 30.], [8.0, 12.0, 16.0, 20.0])
+  effective_max_rate = base_rate * np.clip(reactivity_factor, 1.0, 3.5)
   
-  # 반응성 팩터 적용: 헌팅 시 제한 강화, 정상 조향 시 완화
-  effective_max_rate = base_rate * np.clip(reactivity_factor, 0.6, 2.5)
-  max_delta = effective_max_rate * DT_CTRL
+  try:
+    dt = DT_CTRL if DT_CTRL > 0 else 0.01
+  except NameError:
+    dt = 0.01
+  
+  max_delta = effective_max_rate * dt
   
   delta = smoothed_angle - apply_angle_last
   final_angle = apply_angle_last + np.clip(delta, -max_delta, max_delta)
   
   return final_angle
-
-
 
 
 def process_hud_alert(enabled, fingerprint, hud_control):
@@ -198,6 +239,7 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
     self.car_fingerprint = CP.carFingerprint
     self.last_button_frame = 0
 
+    self.apply_gain_last = 1.0
     self.apply_angle_last = 0
     self.angle_torque_reduction_gain = 0
 
@@ -328,7 +370,7 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
     new_actuators.torque = apply_torque / self.params.STEER_MAX
     new_actuators.torqueOutputCan = apply_torque
     new_actuators.steeringAngleDeg = self.apply_angle_last
-    new_actuators.accel = self.tuning.actual_accel
+    new_actuators.accel = accel
 
     self.frame += 1
     return new_actuators, can_sends
