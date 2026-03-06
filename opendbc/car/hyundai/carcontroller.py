@@ -134,7 +134,7 @@ def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: floa
     return apply_angle_last
   
   # [2] 노이즈 필터링 (MDPS 소음 방지)
-  if angle_diff < CarControllerParams.ANTI_HUNTING_THRESHOLD: # 0.03:
+  if angle_diff < CarControllerParams.ANGLE_ANTI_HUNTING_THRESHOLD: # 0.03:
     return apply_angle_last
   
   # [3] 순수한 에러 크기 기반 반응성 결정 (핵심 철학)
