@@ -66,6 +66,12 @@ class CarControllerParams:
   SMOOTHING_ANGLE_ALPHA_MATRIX = [0.05, 0.1, 0.3, 0.6, 1]
   SMOOTHING_ANGLE_MAX_VEGO = SMOOTHING_ANGLE_VEGO_MATRIX[-1]
 
+  # Test Tuning
+  ANGLE_ANTI_HUNTING_THRESHOLD = 3 # default : 3 (scale 100) Range 1~6
+  ANGLE_STEERING_REACTIVITY_SCALE = 100 # default : 100 (scale 1) Range 70~130
+  ANGLE_MAX_STEERING_RATE_SCALE = 100 # default : 100 (sacle 1) Range 70~130
+  ANGLE_TORQUE_GAIN_RECOVERY_SCALE = 100 # default : 100 (scale 1) Range 70~150
+
   def __init__(self, CP):
     self.STEER_DELTA_UP = 3
     self.STEER_DELTA_DOWN = 7

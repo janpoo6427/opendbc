@@ -88,6 +88,8 @@ def calculate_angle_torque_reduction_gain(params, CS, apply_gain_last, target_to
     torque_change = abs(target_gain - apply_gain_last)
     
     # 속도에 따른 허용 변화량 (물리적 한계 고려)
+    max_changes = [x * params.ANGLE_TORQUE_GAIN_RECOVERY_SCALE for x in [0.02, 0.15, 0.25]]
+
     max_change = np.interp(v_ego, [1.0, 10.0, 30.0], [0.02, 0.15, 0.25])
     
     if torque_change > max_change * 2:
@@ -132,23 +134,23 @@ def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: floa
     return apply_angle_last
   
   # [2] 노이즈 필터링 (MDPS 소음 방지)
-  if angle_diff < 0.03:
+  if angle_diff < CarControllerParams.ANTI_HUNTING_THRESHOLD: # 0.03:
     return apply_angle_last
   
   # [3] 순수한 에러 크기 기반 반응성 결정 (핵심 철학)
   if angle_diff > 0.5:
     # 대형 조향 (급커브 진입/탈출, 큰 복귀 등)
-    reactivity_factor = 4.0
+    reactivity_factor = 4.0 * CarControllerParams.ANGLE_STEERING_REACTIVITY_SCALE
   elif angle_diff > 0.1:
     # 일반 조향 (차선 유지, 완만한 조정)
-    reactivity_factor = np.interp(angle_diff, [0.1, 0.5], [2.5, 4.0])
+    reactivity_factor = np.interp(angle_diff, [0.1, 0.5 * CarControllerParams.ANGLE_STEERING_REACTIVITY_SCALE], [2.5, 4.0 * CarControllerParams.ANGLE_STEERING_REACTIVITY_SCALE])
   else:
     # 미세 조향 (헌팅 가능성 구간)
     angle_change_rate = angle_diff / dt
     
     # 작은 변화에서도 속도가 빠르면 정상 조향으로 판단
-    magnitude_factor = np.interp(angle_diff, [0.0, 0.05, 0.1], [0.6, 1.0, 2.5])
-    rate_factor = np.interp(angle_change_rate, [0.0, 3.0, 10.0], [0.7, 1.3, 2.2])
+    magnitude_factor = np.interp(angle_diff, [0.0, 0.05, 0.1], [0.6 * CarControllerParams.ANGLE_STEERING_REACTIVITY_SCALE, 1.0 * CarControllerParams.ANGLE_STEERING_REACTIVITY_SCALE, 2.5 * CarControllerParams.ANGLE_STEERING_REACTIVITY_SCALE])
+    rate_factor = np.interp(angle_change_rate, [0.0, 3.0, 10.0], [0.7 * CarControllerParams.ANGLE_STEERING_REACTIVITY_SCALE, 1.3 * CarControllerParams.ANGLE_STEERING_REACTIVITY_SCALE, 2.2 * CarControllerParams.ANGLE_STEERING_REACTIVITY_SCALE])
     reactivity_factor = magnitude_factor * rate_factor
 
   # [4] 반응성 기반 적응형 스무딩
@@ -168,7 +170,11 @@ def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: floa
     smoothed_angle = apply_angle
   
   # [5] 통합 Rate Limiter (방향 무관)
-  base_rate = np.interp(abs(v_ego_raw), [0., 10., 20., 30.], [8.0, 12.0, 16.0, 20.0])
+
+
+  # 속도별 조향 속도 제한값에 일괄 적용
+  base_rates = [x * CarControllerParams.ANGLE_MAX_STEERING_RATE_SCALE for x in [8.0, 12.0, 16.0, 20.0]]
+  base_rate = np.interp(abs(v_ego_raw), [0., 10., 20., 30.], base_rates)
   effective_max_rate = base_rate * np.clip(reactivity_factor, 1.0, 3.5)
   
   max_delta = effective_max_rate * dt
@@ -267,6 +273,18 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
       self.params.ANGLE_TORQUE_OVERRIDE_CYCLES = int(self._params.get("HkgTuningOverridingCycles") or self.params.ANGLE_TORQUE_OVERRIDE_CYCLES)
       self.angle_enable_smoothing_factor = self._params.get_bool("EnableHkgTuningAngleSmoothingFactor")
 
+
+      self.params.ANGLE_ANTI_HUNTING_THRESHOLD = parse_tq_rdc_gain(
+        self._params.get("HkgTuningAngleAntiHuntingThreshold")) or self.params.ANGLE_ANTI_HUNTING_THRESHOLD
+      
+      self.params.ANGLE_STEERING_REACTIVITY_SCALE = parse_tq_rdc_gain(
+        self._params.get("HkgTuningAngleSteeringReactivityScale")) or self.params.ANGLE_STEERING_REACTIVITY_SCALE
+
+      self.params.ANGLE_MAX_STEERING_RATE_SCALE = parse_tq_rdc_gain(
+        self._params.get("HkgTuningAngleMaxSteeringRateScale")) or self.params.ANGLE_MAX_STEERING_RATE_SCALE
+      self.params.ANGLE_TORQUE_GAIN_RECOVERY_SCALE = parse_tq_rdc_gain(
+        self._params.get("HkgTuningAngleTorqueGainRecoveryScale")) or self.params.ANGLE_TORQUE_GAIN_RECOVERY_SCALE
+      
       # 파라미터 변경 시 게인 관련 내부 상태 동기화
       self.apply_gain_last = self.params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN
 
