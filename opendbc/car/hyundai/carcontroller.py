@@ -46,17 +46,26 @@ def get_baseline_safety_cp():
   from opendbc.car.hyundai.interface import CarInterface
   return CarInterface.get_non_essential_params(ANGLE_SAFETY_BASELINE_MODEL)
 
-def calculate_angle_torque_reduction_gain(params, CS, apply_torque_last, target_torque_reduction_gain):
+def calculate_angle_torque_reduction_gain(params, CS, apply_gain_last, target_torque_reduction_gain):
   """ 
   Natural torque control based on pure driver intent and physical limits.
   
   Philosophy: Remove all artificial angle-based damping
   Focus only on: 1) Driver safety 2) Smooth transitions 3) Physical limits
+  
+  Args:
+    apply_gain_last: Previous gain value (0.0 ~ 1.0)
+    target_torque_reduction_gain: Target gain from controller
+  
+  Returns:
+    float: New gain value (0.0 ~ 1.0)
   """
   
-  # [1] 기본 게인 설정
-  if apply_gain_last <= 0:
+  # 초기값 보장 - 비정상적인 값 방지
+  if apply_gain_last is None or apply_gain_last <= 0:
     apply_gain_last = params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN
+  
+  # [1] 기본 게인 설정
   target_gain = max(target_torque_reduction_gain, params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN)
 
   driver_torque = abs(CS.out.steeringTorque)
@@ -65,7 +74,7 @@ def calculate_angle_torque_reduction_gain(params, CS, apply_torque_last, target_
   # [2] 운전자 개입 시 토크 감쇠 (안전 필수)
   if CS.out.steeringPressed:
     scale = 100
-    clamped_torque_gain = max(apply_torque_last, params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN)
+    clamped_torque_gain = max(apply_gain_last, params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN)
     target_gain = params.ANGLE_MIN_TORQUE_REDUCTION_GAIN + (clamped_torque_gain - params.ANGLE_MIN_TORQUE_REDUCTION_GAIN) \
                   * math.exp(-(driver_torque - params.STEER_THRESHOLD) / scale)
   
@@ -76,23 +85,23 @@ def calculate_angle_torque_reduction_gain(params, CS, apply_torque_last, target_
   v_ego = abs(CS.out.vEgoRaw)
   
   if not CS.out.steeringPressed:
-    torque_change = abs(target_gain - apply_torque_last)
+    torque_change = abs(target_gain - apply_gain_last)
     
     # 속도에 따른 허용 변화량 (물리적 한계 고려)
     max_change = np.interp(v_ego, [1.0, 10.0, 30.0], [0.02, 0.15, 0.25])
     
     if torque_change > max_change * 2:
-      if target_gain > apply_torque_last:
-        target_gain = min(target_gain, apply_torque_last + max_change)
+      if target_gain > apply_gain_last:
+        target_gain = min(target_gain, apply_gain_last + max_change)
       else:
-        target_gain = max(target_gain, apply_torque_last - max_change)
+        target_gain = max(target_gain, apply_gain_last - max_change)
         
     # 저속에서 부드러운 전환 (정차 떨림 방지)
     if v_ego < 2.0:
       alpha *= 0.3
 
   # [5] 최종 적용
-  new_gain = apply_torque_last + alpha * (target_gain - apply_torque_last)
+  new_gain = apply_gain_last + alpha * (target_gain - apply_gain_last)
 
   return float(np.clip(new_gain, params.ANGLE_MIN_TORQUE_REDUCTION_GAIN, params.ANGLE_MAX_TORQUE_REDUCTION_GAIN))
 
@@ -110,6 +119,12 @@ def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: floa
   Core Innovation: Pure magnitude-based reactivity without directional bias
   """
   
+  # dt 값을 함수 시작 시 한 번만 계산 (중복 제거)
+  try:
+    dt = DT_CTRL if DT_CTRL > 0 else 0.01
+  except NameError:
+    dt = 0.01
+  
   angle_diff = abs(apply_angle - apply_angle_last)
   
   # [1] 물리적 안정성 (정차 시 제어 중단)
@@ -121,22 +136,14 @@ def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: floa
     return apply_angle_last
   
   # [3] 순수한 에러 크기 기반 반응성 결정 (핵심 철학)
-  # 복귀/회전 구분 없이 오직 변화량 크기로만 판단
   if angle_diff > 0.5:
     # 대형 조향 (급커브 진입/탈출, 큰 복귀 등)
     reactivity_factor = 4.0
-    
   elif angle_diff > 0.1:
     # 일반 조향 (차선 유지, 완만한 조정)
     reactivity_factor = np.interp(angle_diff, [0.1, 0.5], [2.5, 4.0])
-    
   else:
     # 미세 조향 (헌팅 가능성 구간)
-    try:
-      dt = DT_CTRL if DT_CTRL > 0 else 0.01
-    except NameError:
-      dt = 0.01
-      
     angle_change_rate = angle_diff / dt
     
     # 작은 변화에서도 속도가 빠르면 정상 조향으로 판단
@@ -163,11 +170,6 @@ def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: floa
   # [5] 통합 Rate Limiter (방향 무관)
   base_rate = np.interp(abs(v_ego_raw), [0., 10., 20., 30.], [8.0, 12.0, 16.0, 20.0])
   effective_max_rate = base_rate * np.clip(reactivity_factor, 1.0, 3.5)
-  
-  try:
-    dt = DT_CTRL if DT_CTRL > 0 else 0.01
-  except NameError:
-    dt = 0.01
   
   max_delta = effective_max_rate * dt
   
@@ -235,11 +237,14 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
     self.BASELINE_VM = VehicleModel(get_baseline_safety_cp())
 
     self.accel_last = 0
-    self.apply_torque_last = 0
+    
+    # 변수 분리: 토크 모드와 각도 모드의 서로 다른 데이터 타입 처리
+    self.apply_torque_last = 0      # Legacy 토크 모드: 실제 토크값 (0~4096)
+    self.apply_gain_last = 1.0      # CAN FD 각도 모드: 게인값 (0.0~1.0)
+    
     self.car_fingerprint = CP.carFingerprint
     self.last_button_frame = 0
 
-    self.apply_gain_last = 1.0
     self.apply_angle_last = 0
     self.angle_torque_reduction_gain = 0
 
@@ -259,6 +264,9 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
 
       self.params.ANGLE_TORQUE_OVERRIDE_CYCLES = int(self._params.get("HkgTuningOverridingCycles") or self.params.ANGLE_TORQUE_OVERRIDE_CYCLES)
       self.angle_enable_smoothing_factor = self._params.get_bool("EnableHkgTuningAngleSmoothingFactor")
+
+      # 파라미터 변경 시 게인 관련 내부 상태 동기화
+      self.apply_gain_last = self.params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN
 
     self.angle_torque_reduction_gain_controller = TorqueReductionGainController(
       angle_threshold=.3,
@@ -281,6 +289,7 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
 
     # steering torque
     if not self.CP.flags & HyundaiFlags.CANFD_ANGLE_STEERING:
+      # ===== Legacy 토크 기반 제어 =====
       self.angle_limit_counter, apply_steer_req = common_fault_avoidance(abs(CS.out.steeringAngleDeg) >= MAX_ANGLE, CC.latActive,
                                                                          self.angle_limit_counter, MAX_ANGLE_FRAMES,
                                                                          MAX_ANGLE_CONSECUTIVE_FRAMES)
@@ -288,7 +297,15 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
       apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last, CS.out.steeringTorque, self.params)
 
     # angle control
+      
+      # 토크 기반 제어에서는 실제 토크값 저장
+      self.apply_torque_last = apply_torque
+      
+      # Hold torque with induced temporary fault when cutting the actuation bit
+      torque_fault = CC.latActive and not apply_steer_req
+
     else:
+      # ===== CAN FD 각도 기반 제어 =====
       v_ego_raw = CS.out.vEgoRaw
       desired_angle = np.clip(actuators.steeringAngleDeg, -self.params.ANGLE_LIMITS.STEER_ANGLE_MAX, self.params.ANGLE_LIMITS.STEER_ANGLE_MAX)
 
@@ -297,7 +314,7 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
 
       apply_angle = apply_steer_angle_limits_vm(desired_angle, self.apply_angle_last, v_ego_raw, CS.out.steeringAngleDeg, CC.latActive, self.params, self.VM)
 
-      # if we are not the baseline model, we use the baseline model for further limits to prevent a panda block since it is hardcoded for baseline model.
+      # if we are not the baseline model, we use the baseline model for further limits
       if self.CP.carFingerprint != ANGLE_SAFETY_BASELINE_MODEL:
         apply_angle = apply_steer_angle_limits_vm(apply_angle or desired_angle, self.apply_angle_last, v_ego_raw, CS.out.steeringAngleDeg, CC.latActive,
                                                   self.params, self.BASELINE_VM)
@@ -309,11 +326,16 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
         lat_active=CC.latActive
       )
 
-      # This method ensures that the torque gives up when overriding and controls the ramp rate to avoid feeling jittery.
+      # 게인 계산 (0.0~1.0 범위)
       apply_torque = calculate_angle_torque_reduction_gain(self.params, CS, self.apply_torque_last, target_torque_reduction_gain)
 
-      # apply_steer_req is True when we are actively attempting to steer and under the angle limit. Otherwise the user is overriding.
-      apply_steer_req = CC.latActive and apply_torque != 0
+
+      # 각도 기반 제어에서는 게인값 저장
+      self.apply_gain_last = apply_torque
+
+
+      # apply_steer_req is True when we are actively attempting to steer
+      apply_steer_req = CC.latActive and apply_torque > 0
 
       # Failsafe if we detected we'd violate safety
       if apply_angle is None:
@@ -323,15 +345,12 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
 
       # After we've used the last angle wherever we needed it, we now update it.
       self.apply_angle_last = apply_angle
+      
+      # CAN FD에서는 torque_fault 사용하지 않음
+      torque_fault = False
 
     if not CC.latActive:
       apply_torque = 0
-
-    # Hold torque with induced temporary fault when cutting the actuation bit
-    # FIXME: we don't use this with CAN FD?
-    torque_fault = CC.latActive and not apply_steer_req
-
-    self.apply_torque_last = apply_torque
 
     # accel + longitudinal
     accel = float(np.clip(actuators.accel, CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX))
@@ -369,7 +388,14 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
     new_actuators = actuators.as_builder()
     new_actuators.torque = apply_torque / self.params.STEER_MAX
     new_actuators.torqueOutputCan = apply_torque
-    new_actuators.steeringAngleDeg = self.apply_angle_last
+    
+    # 모드에 따른 적절한 각도 출력
+    if self.CP.flags & HyundaiFlags.CANFD_ANGLE_STEERING:
+      new_actuators.steeringAngleDeg = self.apply_angle_last
+    else:
+      new_actuators.steeringAngleDeg = CS.out.steeringAngleDeg  # 토크 모드에서는 실제 각도
+    
+    # 수정: 존재하지 않는 self.tuning.actual_accel 대신 계산된 accel 사용
     new_actuators.accel = accel
 
     self.frame += 1
