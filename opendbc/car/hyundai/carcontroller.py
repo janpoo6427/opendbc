@@ -297,7 +297,7 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
       ramp_down_rate=self.params.ANGLE_RAMP_DOWN_TORQUE_REDUCTION_RATE
     )
 
-def update(self, CC, CC_SP, CS, now_nanos):
+  def update(self, CC, CC_SP, CS, now_nanos):
     EsccCarController.update(self, CS)
     LeadDataCarController.update(self, CC_SP)
     MadsCarController.update(self, self.CP, CC, CC_SP, self.frame)
