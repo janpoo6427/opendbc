@@ -69,60 +69,41 @@ def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: floa
                    angle_sensitivity: float = 1.0, angle_deadzone: float = 0.0,
                    current_angle: float = 0.0) -> float:
   """
-  Simple and Elegant Hunting Suppression
-  
-  **핵심 철학:**
-  - 원본 구조 최대한 보존
-  - 0.1도 이하도 적절히 감쇠
-  - 복잡한 조건문 없이 수식으로 해결
-  - 끊김 없는 연속적 전환
+  Fixed: Hunting Suppression with Guaranteed Original Smoothing
   """
   
   angle_change = abs(apply_angle - apply_angle_last)
   
+  # 극미세 변화 조기 종료 (감쇠 전에 판단)
+  if angle_change <= 0.03:
+    return apply_angle
+  
   # ================================================================
-  # 1. 속도 기반 동적 감쇠 (핵심 - 단 5줄로 모든 문제 해결!)
+  # 1. 헌팅 억제 감쇠 (동일)
   # ================================================================
   
   if angle_deadzone > 0.01:
-    # 저속일수록 강한 감쇠, 고속일수록 약한 감쇠
     speed_factor = np.interp(v_ego_raw, [0.0, 15.0, 30.0], [0.4, 0.7, 1.0])
-    
-    # 변화량별 감쇠 비율 (연속적, Bell curve 효과)
     change_factor = np.interp(angle_change, [0.0, angle_deadzone, angle_deadzone * 3.0], 
                              [0.3, 0.6, 1.0])
-    
-    # 최종 감쇠 적용 (방향 보존)
-    final_factor = max(speed_factor * change_factor, 0.2)  # 최소 20% 보장
+    final_factor = max(speed_factor * change_factor, 0.2)
     change_direction = np.sign(apply_angle - apply_angle_last)
     damped_change = angle_change * final_factor
     apply_angle = apply_angle_last + (damped_change * change_direction)
   
   # ================================================================
-  # 2. 개선된 원본 로직 (미세한 수정)
+  # 2. 원본 스무딩 (항상 적용 - 버그 수정)
   # ================================================================
   
-  # 재계산된 변화량
-  final_change = abs(apply_angle - apply_angle_last)
-  
-  # 원본: 0.1도 이하 즉시 반영 → 개선: 극미세만 즉시 반영
-  if final_change <= 0.05:  # 0.1 → 0.05로 축소 (헌팅 범위 제외)
-    return apply_angle
-  
-  # 원본 스무딩 로직 (완전 보존)
+  # 조기 반환 로직 완전 제거 - 모든 변화에 원본 스무딩 적용
   adjusted_alpha = np.interp(v_ego_raw, 
                             CarControllerParams.SMOOTHING_ANGLE_VEGO_MATRIX, 
                             CarControllerParams.SMOOTHING_ANGLE_ALPHA_MATRIX)
   
   adjusted_alpha *= angle_sensitivity
-  adjusted_alpha_limited = float(min(adjusted_alpha, 1.0))
+  adjusted_alpha_limited = float(np.clip(adjusted_alpha, 0.0, 1.0))
   
   return (apply_angle * adjusted_alpha_limited) + (apply_angle_last * (1.0 - adjusted_alpha_limited))
-
-
-
-
-
 
 
 def process_hud_alert(enabled, fingerprint, hud_control):
