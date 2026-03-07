@@ -192,10 +192,12 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
       self.params.ANGLE_SENSITIVITY = float(self._params.get("HkgTuningAngleSensitivity")) or self.params.ANGLE_SENSITIVITY
       self.params.ANGLE_DEADZONE = float(self._params.get("HkgTuningAngleDeadzone")) or self.params.ANGLE_DEADZONE      
 
+      self.params.ANGLE_THRESHOLD = float(self._params.get("HkgTuningAngleThreshold")) or self.params.ANGLE_THRESHOLD
+      self.params.ANGLE_DEBOUNCE_TIME = float(self._params.get("HkgTuningAngleDebounceTime")) or self.params.ANGLE_DEBOUNCE_TIME  
 
     self.angle_torque_reduction_gain_controller = TorqueReductionGainController(
-      angle_threshold=.3,
-      debounce_time=.1,
+      angle_threshold=self.params.ANGLE_THRESHOLD,
+      debounce_time=self.params.ANGLE_DEBOUNCE_TIME,
       min_gain=self.params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN,
       max_gain=self.params.ANGLE_MAX_TORQUE_REDUCTION_GAIN,
       ramp_up_rate=self.params.ANGLE_RAMP_UP_TORQUE_REDUCTION_RATE,
