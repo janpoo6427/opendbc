@@ -260,12 +260,11 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
       self.apply_angle_last = apply_angle
 
       angle_error = abs(CS.out.steeringAngleDeg - self.apply_angle_last)
-      print(f"[TORQUE_DEBUG] v={v_ego_raw:.1f},
-              error_angle={angle_error:.3f}, 
-              desired_angle={desired_angle:.3f}
-              apply_angle={apply_angle:.3f},
-              apply_torque={apply_torque:.3f}, 
-              target_gain={target_torque_reduction_gain:.3f}")
+      
+      # 'a' 모드는 기존 내용 뒤에 이어서 씁니다 (Append)
+      # 'w' 모드는 기존 내용을 지우고 새로 씁니다 (Write)
+      with open("torque_log.txt", "a") as f:
+        print(f"[TORQUE_DEBUG] v={v_ego_raw:.1f}, error_angle={angle_error:.3f}, desired_angle={desired_angle:.3f} apply_angle={apply_angle:.3f}, apply_torque={apply_torque:.3f}, target_gain={target_torque_reduction_gain:.3f}", file=f)
 
     if not CC.latActive:
       apply_torque = 0
