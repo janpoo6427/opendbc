@@ -232,7 +232,7 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
         apply_angle = apply_steer_angle_limits_vm(apply_angle or desired_angle, self.apply_angle_last, v_ego_raw, CS.out.steeringAngleDeg, CC.latActive,
                                                   self.params, self.BASELINE_VM)
       # 1. 속도에 따른 기본 게인 계산 (v=0 -> 0.15, v=10 -> 0.6)
-      speed_factor = np.interp(CS.out.vEgoRaw, [0.0, 10.0], [0.25, 1.0])
+      speed_factor = np.interp(CS.out.vEgoRaw, [0.0, 20.0], [0.25, 1.0])
       current_active_torque = self.params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN * speed_factor
       # Use saturation-based torque reduction gain
       target_torque_reduction_gain = self.angle_torque_reduction_gain_controller.update(
