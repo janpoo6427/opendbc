@@ -55,8 +55,8 @@ class CarControllerParams:
   ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN = 0.6  # Torque command when the car is stopped, to prevent steering wheel from being too loose.
 
   # Rate limits for changing steering torque commands:
-  ANGLE_RAMP_UP_TORQUE_REDUCTION_RATE = 0.008  # Maximum rate at which torque can increase per control cycle.
-  ANGLE_RAMP_DOWN_TORQUE_REDUCTION_RATE = 0.0012  # Maximum rate at which torque can decrease per cycle
+  ANGLE_RAMP_UP_TORQUE_REDUCTION_RATE = 0.004  # Maximum rate at which torque can increase per control cycle.
+  ANGLE_RAMP_DOWN_TORQUE_REDUCTION_RATE = 0.0006  # Maximum rate at which torque can decrease per cycle
 
   ANGLE_TORQUE_OVERRIDE_CYCLES = 17  # Number of control cycles over which torque ramps down to minimum after driver override is detected.
 
