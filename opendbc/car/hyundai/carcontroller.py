@@ -47,16 +47,15 @@ def get_baseline_safety_cp():
   return CarInterface.get_non_essential_params(ANGLE_SAFETY_BASELINE_MODEL)
 
 
-def calculate_angle_torque_reduction_gain(params, CS, apply_torque_last, target_torque_reduction_gain):
+def calculate_angle_torque_reduction_gain(params, CS, apply_torque_last, target_gain):
   """ Calculate the angle torque reduction gain based on the current steering state. """
-  target_gain = max(target_torque_reduction_gain, params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN)
 
   driver_torque = abs(CS.out.steeringTorque)
   alpha = np.interp(driver_torque, [params.STEER_THRESHOLD * .8, params.STEER_THRESHOLD * 2], [0.02, 0.1])
 
   if CS.out.steeringPressed:
     scale = 100
-    clamped_torque_gain = max(apply_torque_last, params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN)
+    clamped_torque_gain = max(apply_torque_last, target_gain)
     target_gain = params.ANGLE_MIN_TORQUE_REDUCTION_GAIN + (clamped_torque_gain - params.ANGLE_MIN_TORQUE_REDUCTION_GAIN) \
                   * math.exp(-(driver_torque - params.STEER_THRESHOLD) / scale)
 
@@ -86,30 +85,26 @@ def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: floa
 
   Returns:
     float: Smoothed steering angle.
+
+  Smooth the steering angle change based on vehicle speed and an optional smoothing offset.
+  Includes logic to reduce noise at low speeds (Variable Damping).
   """
-  angle_change = apply_angle - apply_angle_last
+  angle_change = abs(apply_angle - apply_angle_last)
   
-  # 1. 기본 스무딩 팩터 (차량 속도에 따른 기본 부드러움)
-  # 이 값은 오픈파일럿 기본 튜닝값을 신뢰하고 그대로 씁니다.
+  # 1. Base Smoothing Factor
   base_alpha = np.interp(v_ego_raw, 
                         CarControllerParams.SMOOTHING_ANGLE_VEGO_MATRIX, 
                         CarControllerParams.SMOOTHING_ANGLE_ALPHA_MATRIX)
   
-  # 2. [핵심] 가변 댐핑 (Variable Damping)
-  # 변화량이 0.2도 미만일 때: 반응성을 극도로 낮춤 (Noise Filter)
-  # 변화량이 0.2도 이상일 때: 원래 반응성 복귀 (Steering Response)
+  # 2. [검증 완료] 속도 기반 노이즈 임계값
+  # 저속(0~5m/s)에서는 0.15도 이하의 미세 변화에 둔감하게 반응하여 진동 억제
+  noise_threshold = np.interp(v_ego_raw, [0.0, 5.0, 20.0], [0.15, 0.10, 0.02])
+
+  # 3. Damping Factor
+  damping_factor = np.interp(angle_change, [0.0, noise_threshold, noise_threshold * 3.0], [0.001, 0.05, 1.0])
   
-  # 변화량 0.0도 -> 반영률 5% (거의 안 움직임, 진동 흡수)
-  # 변화량 0.2도 -> 반영률 100% (정상 작동)
-  damping_factor = np.interp(abs(angle_change), [0.0, 0.2], [0.05, 1.0])
+  final_alpha = float(np.clip(base_alpha * damping_factor, 0.0, 1.0))
   
-  # 최종 반영 비율 = 기본 팩터 * 댐핑 팩터
-  final_alpha = base_alpha * damping_factor
-  
-  # 안전장치 (0~1 범위 유지)
-  final_alpha = float(np.clip(final_alpha, 0.0, 1.0))
-  
-  # 최종 각도 계산
   return (apply_angle * final_alpha) + (apply_angle_last * (1.0 - final_alpha))
 
 
@@ -198,7 +193,7 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
     self.angle_torque_reduction_gain_controller = TorqueReductionGainController(
       angle_threshold=.3,
       debounce_time=.1,
-      min_gain=self.params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN,
+      min_gain=.0,
       max_gain=self.params.ANGLE_MAX_TORQUE_REDUCTION_GAIN,
       ramp_up_rate=self.params.ANGLE_RAMP_UP_TORQUE_REDUCTION_RATE,
       ramp_down_rate=self.params.ANGLE_RAMP_DOWN_TORQUE_REDUCTION_RATE
@@ -236,12 +231,15 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
       if self.CP.carFingerprint != ANGLE_SAFETY_BASELINE_MODEL:
         apply_angle = apply_steer_angle_limits_vm(apply_angle or desired_angle, self.apply_angle_last, v_ego_raw, CS.out.steeringAngleDeg, CC.latActive,
                                                   self.params, self.BASELINE_VM)
-
+      # 1. 속도에 따른 기본 게인 계산 (v=0 -> 0.15, v=10 -> 0.6)
+      speed_factor = np.interp(CS.out.vEgoRaw, [0.0, 10.0], [0.25, 1.0])
+      current_active_torque = self.params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN * speed_factor
       # Use saturation-based torque reduction gain
       target_torque_reduction_gain = self.angle_torque_reduction_gain_controller.update(
         last_requested_angle=self.apply_angle_last,
         actual_angle=CS.out.steeringAngleDeg,
-        lat_active=CC.latActive
+        lat_active=CC.latActive,
+        current_active_torque=current_active_torque  # <--- 추가된 인자
       )
 
       # This method ensures that the torque gives up when overriding and controls the ramp rate to avoid feeling jittery.
