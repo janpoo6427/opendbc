@@ -87,11 +87,30 @@ def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: floa
   Returns:
     float: Smoothed steering angle.
   """
-  #if abs(apply_angle - apply_angle_last) > 0.1:
-  adjusted_alpha = np.interp(v_ego_raw, CarControllerParams.SMOOTHING_ANGLE_VEGO_MATRIX, CarControllerParams.SMOOTHING_ANGLE_ALPHA_MATRIX)
-  adjusted_alpha_limited = float(min(float(adjusted_alpha), 1.))  # Limit the smoothing factor to 1 if adjusted_alpha is greater than 1
-  return (apply_angle * adjusted_alpha_limited) + (apply_angle_last * (1. - adjusted_alpha_limited))
-  #return apply_angle
+  angle_change = apply_angle - apply_angle_last
+  
+  # 1. 기본 스무딩 팩터 (차량 속도에 따른 기본 부드러움)
+  # 이 값은 오픈파일럿 기본 튜닝값을 신뢰하고 그대로 씁니다.
+  base_alpha = np.interp(v_ego_raw, 
+                        CarControllerParams.SMOOTHING_ANGLE_VEGO_MATRIX, 
+                        CarControllerParams.SMOOTHING_ANGLE_ALPHA_MATRIX)
+  
+  # 2. [핵심] 가변 댐핑 (Variable Damping)
+  # 변화량이 0.2도 미만일 때: 반응성을 극도로 낮춤 (Noise Filter)
+  # 변화량이 0.2도 이상일 때: 원래 반응성 복귀 (Steering Response)
+  
+  # 변화량 0.0도 -> 반영률 5% (거의 안 움직임, 진동 흡수)
+  # 변화량 0.2도 -> 반영률 100% (정상 작동)
+  damping_factor = np.interp(abs(angle_change), [0.0, 0.2], [0.05, 1.0])
+  
+  # 최종 반영 비율 = 기본 팩터 * 댐핑 팩터
+  final_alpha = base_alpha * damping_factor
+  
+  # 안전장치 (0~1 범위 유지)
+  final_alpha = float(np.clip(final_alpha, 0.0, 1.0))
+  
+  # 최종 각도 계산
+  return (apply_angle * final_alpha) + (apply_angle_last * (1.0 - final_alpha))
 
 
 def process_hud_alert(enabled, fingerprint, hud_control):
