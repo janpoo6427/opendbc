@@ -233,11 +233,11 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
       if self.CP.carFingerprint != ANGLE_SAFETY_BASELINE_MODEL:
         apply_angle = apply_steer_angle_limits_vm(apply_angle or desired_angle, self.apply_angle_last, v_ego_raw, CS.out.steeringAngleDeg, CC.latActive,
                                                   self.params, self.BASELINE_VM)
-      speed_factor = np.interp(v_ego_raw, 
-                               [0.0, 5.0, 10.0, 20.0], 
-                               [1.0, 0.8, 0.6, 0.4])
+      #speed_factor = np.interp(v_ego_raw, 
+      #                         [0.0, 5.0, 10.0, 20.0], 
+      #                         [1.0, 0.8, 0.6, 0.4])
 
-      current_active_torque = self.params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN * speed_factor
+      current_active_torque = self.params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN # * speed_factor
       # Use saturation-based torque reduction gain
       target_torque_reduction_gain = self.angle_torque_reduction_gain_controller.update(
         last_requested_angle=self.apply_angle_last,
