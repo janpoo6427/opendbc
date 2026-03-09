@@ -244,7 +244,7 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
       # 3. 조향각 크기에 따른 부스트 (Angle Boost)
       # 핸들이 10도 미만이면 부스트 0, 90도 이상 꺾이면 최대 0.5 추가
       current_angle_mag = abs(CS.out.steeringAngleDeg)
-      angle_boost = np.interp(current_angle_mag, [0, 60.0, 120.0], [0.0, 0.5, 0.8])
+      angle_boost = np.interp(current_angle_mag, [0, 30.0, 60.0], [0.0, 0.5, 0.1])
      
       # 4. 최종 마찰 부스트 계산 (속도 가중치 x 조향각 부스트)
       # 예: 정차 중(weight 1.0) 핸들 90도(boost 0.5) -> 0.5 추가
