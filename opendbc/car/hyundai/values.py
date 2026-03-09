@@ -63,7 +63,7 @@ class CarControllerParams:
   # More torque optimization
   # The torque is calculated based on the curvature of the road and the speed of the car and it's a percentage of the maximum torque.
   SMOOTHING_ANGLE_VEGO_MATRIX = [0, 5, 11, 15, 20]
-  SMOOTHING_ANGLE_ALPHA_MATRIX = [0.05, 0.1, 0.2, 0.8, 1]
+  SMOOTHING_ANGLE_ALPHA_MATRIX = [0.005, 0.05, 0.2, 0.8, 1]
   SMOOTHING_ANGLE_MAX_VEGO = SMOOTHING_ANGLE_VEGO_MATRIX[-1]
 
   def __init__(self, CP):
@@ -440,7 +440,7 @@ class CAR(Platforms):
   )
   HYUNDAI_IONIQ_9 = HyundaiCanFDPlatformConfig(
     [HyundaiCarDocs("Hyundai Ioniq 9 (with HDA II & LFA2) 2025-26", "Highway Driving Assist II & Lane Follow Assist 2", car_parts=CarParts.common([CarHarness.hyundai_m]))],
-    CarSpecs(mass=2700, wheelbase=3.13, steerRatio=15.8),
+    CarSpecs(mass=2700, wheelbase=3.13, steerRatio=16.0),
     flags=HyundaiFlags.EV | HyundaiFlags.CANFD_ANGLE_STEERING,
   )
   HYUNDAI_TUCSON_4TH_GEN = HyundaiCanFDPlatformConfig(
