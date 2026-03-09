@@ -98,7 +98,7 @@ def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: floa
   
   # 2. [검증 완료] 속도 기반 노이즈 임계값
   # 저속(0~5m/s)에서는 0.15도 이하의 미세 변화에 둔감하게 반응하여 진동 억제
-  noise_threshold = np.interp(v_ego_raw, [0.0, 5.0, 15.0, 30.0], [0.8, 0.5, 0.25, 0.05])
+  noise_threshold = np.interp(v_ego_raw, [0.0, 5.0, 15.0, 30.0], [0.6, 0.4, 0.1, 0.02])
 
   # 3. Damping Factor
   damping_factor = np.interp(angle_change,
