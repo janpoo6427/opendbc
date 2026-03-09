@@ -52,18 +52,18 @@ class CarControllerParams:
 
   ANGLE_MAX_TORQUE_REDUCTION_GAIN = 1.  # Maximum torque command applied to the steering actuator.
   ANGLE_MIN_TORQUE_REDUCTION_GAIN = 0.1  # Minimum torque command allowed when the driver is overriding, to maintain steering feedback.
-  ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN = 0.6  # Torque command when the car is stopped, to prevent steering wheel from being too loose.
+  ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN = 0.75  # Torque command when the car is stopped, to prevent steering wheel from being too loose.
 
   # Rate limits for changing steering torque commands:
-  ANGLE_RAMP_UP_TORQUE_REDUCTION_RATE = 0.004  # Maximum rate at which torque can increase per control cycle.
-  ANGLE_RAMP_DOWN_TORQUE_REDUCTION_RATE = 0.0006  # Maximum rate at which torque can decrease per cycle
+  ANGLE_RAMP_UP_TORQUE_REDUCTION_RATE = 0.005  # Maximum rate at which torque can increase per control cycle.
+  ANGLE_RAMP_DOWN_TORQUE_REDUCTION_RATE = 0.01  # Maximum rate at which torque can decrease per cycle
 
   ANGLE_TORQUE_OVERRIDE_CYCLES = 17  # Number of control cycles over which torque ramps down to minimum after driver override is detected.
 
   # More torque optimization
   # The torque is calculated based on the curvature of the road and the speed of the car and it's a percentage of the maximum torque.
-  SMOOTHING_ANGLE_VEGO_MATRIX = [0, 8.5, 11, 13.8, 22.22]
-  SMOOTHING_ANGLE_ALPHA_MATRIX = [0.05, 0.1, 0.3, 0.6, 1]
+  SMOOTHING_ANGLE_VEGO_MATRIX = [0, 5, 11, 15, 20]
+  SMOOTHING_ANGLE_ALPHA_MATRIX = [0.05, 0.1, 0.2, 0.8, 1]
   SMOOTHING_ANGLE_MAX_VEGO = SMOOTHING_ANGLE_VEGO_MATRIX[-1]
 
   def __init__(self, CP):
@@ -440,7 +440,7 @@ class CAR(Platforms):
   )
   HYUNDAI_IONIQ_9 = HyundaiCanFDPlatformConfig(
     [HyundaiCarDocs("Hyundai Ioniq 9 (with HDA II & LFA2) 2025-26", "Highway Driving Assist II & Lane Follow Assist 2", car_parts=CarParts.common([CarHarness.hyundai_m]))],
-    CarSpecs(mass=2700, wheelbase=3.13, steerRatio=16.02, tireStiffnessFactor=0.65),
+    CarSpecs(mass=2700, wheelbase=3.13, steerRatio=15.8),
     flags=HyundaiFlags.EV | HyundaiFlags.CANFD_ANGLE_STEERING,
   )
   HYUNDAI_TUCSON_4TH_GEN = HyundaiCanFDPlatformConfig(

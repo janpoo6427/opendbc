@@ -98,10 +98,12 @@ def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: floa
   
   # 2. [검증 완료] 속도 기반 노이즈 임계값
   # 저속(0~5m/s)에서는 0.15도 이하의 미세 변화에 둔감하게 반응하여 진동 억제
-  noise_threshold = np.interp(v_ego_raw, [0.0, 5.0, 20.0], [0.15, 0.10, 0.02])
+  noise_threshold = np.interp(v_ego_raw, [0.0, 5.0, 15.0, 30.0], [0.6, 0.4, 0.1, 0.02])
 
   # 3. Damping Factor
-  damping_factor = np.interp(angle_change, [0.0, noise_threshold, noise_threshold * 3.0], [0.001, 0.05, 1.0])
+  damping_factor = np.interp(angle_change,
+   [0.0, noise_threshold * 0.5, noise_threshold, noise_threshold * 1.5],
+   [0.001, 0.01, 0.1, 1.0])
   
   final_alpha = float(np.clip(base_alpha * damping_factor, 0.0, 1.0))
   
@@ -231,8 +233,29 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
       if self.CP.carFingerprint != ANGLE_SAFETY_BASELINE_MODEL:
         apply_angle = apply_steer_angle_limits_vm(apply_angle or desired_angle, self.apply_angle_last, v_ego_raw, CS.out.steeringAngleDeg, CC.latActive,
                                                   self.params, self.BASELINE_VM)
-      # 1. 속도에 따른 기본 게인 계산 (v=0 -> 0.15, v=10 -> 0.6)
-      speed_factor = np.interp(CS.out.vEgoRaw, [0.0, 20.0], [0.25, 1.0])
+      # 1. 기본 속도 게인 (Base Speed Factor)
+      # 저속(0~10km/h)에서는 50%, 고속(72km/h 이상)에서는 100% 힘을 사용
+      base_speed_factor = np.interp(v_ego_raw, [0.0, 5.0, 20.0], [0.5, 0.6, 1.0])
+
+      # 2. 마찰 보상 가중치 (Friction Weight) - Fade Out
+      # 속도가 0일 때 가중치 1.0, 속도가 10m/s(36km/h)를 넘으면 가중치 0.0으로 자연스럽게 사라짐
+      friction_factor = np.interp(v_ego_raw, [0.0, 10.0], [1.0, 0.0])
+
+      # 3. 조향각 크기에 따른 부스트 (Angle Boost)
+      # 핸들이 10도 미만이면 부스트 0, 90도 이상 꺾이면 최대 0.5 추가
+      current_angle_mag = abs(CS.out.steeringAngleDeg)
+      angle_boost = np.interp(current_angle_mag, [10.0, 90.0], [0.0, 0.5])
+     
+      # 4. 최종 마찰 부스트 계산 (속도 가중치 x 조향각 부스트)
+      # 예: 정차 중(weight 1.0) 핸들 90도(boost 0.5) -> 0.5 추가
+      # 예: 20km/h 주행 중(weight ~0.45) 핸들 90도(boost 0.5) -> 약 0.22 추가
+      final_friction_boost = friction_factor * angle_boost
+      
+
+      # 5. 최종 스피드 팩터 결정 (기본값 + 마찰 보상값)
+      # 최대값은 1.0을 넘지 않도록 제한
+      speed_factor = np.clip(base_speed_factor + final_friction_boost, 0.0, 1.0)
+
       current_active_torque = self.params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN * speed_factor
       # Use saturation-based torque reduction gain
       target_torque_reduction_gain = self.angle_torque_reduction_gain_controller.update(
