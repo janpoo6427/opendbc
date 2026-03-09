@@ -235,16 +235,16 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
                                                   self.params, self.BASELINE_VM)
       # 1. 기본 속도 게인 (Base Speed Factor)
       # 저속(0~10km/h)에서는 50%, 고속(72km/h 이상)에서는 100% 힘을 사용
-      base_speed_factor = np.interp(v_ego_raw, [0.0, 5.0, 20.0], [0.5, 0.6, 1.0])
+      base_speed_factor = np.interp(v_ego_raw, [0.0, 5.0, 20.0], [0.65, 0.75, 1.0])
 
       # 2. 마찰 보상 가중치 (Friction Weight) - Fade Out
       # 속도가 0일 때 가중치 1.0, 속도가 10m/s(36km/h)를 넘으면 가중치 0.0으로 자연스럽게 사라짐
-      friction_factor = np.interp(v_ego_raw, [0.0, 10.0], [1.0, 0.0])
+      friction_factor = np.interp(v_ego_raw, [0.0, 10.0, 15.0], [1.0, 0.5, 0])
 
       # 3. 조향각 크기에 따른 부스트 (Angle Boost)
       # 핸들이 10도 미만이면 부스트 0, 90도 이상 꺾이면 최대 0.5 추가
       current_angle_mag = abs(CS.out.steeringAngleDeg)
-      angle_boost = np.interp(current_angle_mag, [10.0, 90.0], [0.0, 0.5])
+      angle_boost = np.interp(current_angle_mag, [0, 60.0, 120.0], [0.0, 0.5, 0.8])
      
       # 4. 최종 마찰 부스트 계산 (속도 가중치 x 조향각 부스트)
       # 예: 정차 중(weight 1.0) 핸들 90도(boost 0.5) -> 0.5 추가
