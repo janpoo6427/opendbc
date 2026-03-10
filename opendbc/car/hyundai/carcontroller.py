@@ -87,11 +87,11 @@ def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: floa
   Returns:
     float: Smoothed steering angle.
   """
-  if abs(apply_angle - apply_angle_last) > 0.1:
-    adjusted_alpha = np.interp(v_ego_raw, CarControllerParams.SMOOTHING_ANGLE_VEGO_MATRIX, CarControllerParams.SMOOTHING_ANGLE_ALPHA_MATRIX)
-    adjusted_alpha_limited = float(min(float(adjusted_alpha), 1.))  # Limit the smoothing factor to 1 if adjusted_alpha is greater than 1
-    return (apply_angle * adjusted_alpha_limited) + (apply_angle_last * (1 - adjusted_alpha_limited))
-  return apply_angle
+  # if abs(apply_angle - apply_angle_last) > 0.1:
+  adjusted_alpha = np.interp(v_ego_raw, CarControllerParams.SMOOTHING_ANGLE_VEGO_MATRIX, CarControllerParams.SMOOTHING_ANGLE_ALPHA_MATRIX)
+  adjusted_alpha_limited = float(min(float(adjusted_alpha), 1.))  # Limit the smoothing factor to 1 if adjusted_alpha is greater than 1
+  return (apply_angle * adjusted_alpha_limited) + (apply_angle_last * (1 - adjusted_alpha_limited))
+  # return apply_angle
 
 
 def process_hud_alert(enabled, fingerprint, hud_control):
@@ -179,7 +179,7 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
     self.angle_torque_reduction_gain_controller = TorqueReductionGainController(
       angle_threshold=.3,
       debounce_time=.1,
-      min_gain=self.params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN,
+      min_gain=0.0, #self.params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN,
       max_gain=self.params.ANGLE_MAX_TORQUE_REDUCTION_GAIN,
       ramp_up_rate=self.params.ANGLE_RAMP_UP_TORQUE_REDUCTION_RATE,
       ramp_down_rate=self.params.ANGLE_RAMP_DOWN_TORQUE_REDUCTION_RATE
@@ -208,6 +208,9 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
       v_ego_raw = CS.out.vEgoRaw
       desired_angle = np.clip(actuators.steeringAngleDeg, -self.params.ANGLE_LIMITS.STEER_ANGLE_MAX, self.params.ANGLE_LIMITS.STEER_ANGLE_MAX)
 
+      if abs(desired_angle - self.apply_angle_last) < 0.05:
+        desired_angle = self.apply_angle_last
+        
       if self.angle_enable_smoothing_factor and abs(v_ego_raw) < CarControllerParams.SMOOTHING_ANGLE_MAX_VEGO:
         desired_angle = sp_smooth_angle(v_ego_raw, desired_angle, self.apply_angle_last)
 
