@@ -103,7 +103,7 @@ def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: floa
   # 3. Damping Factor
   damping_factor = np.interp(angle_change,
    [0.0, noise_threshold * 0.5, noise_threshold, noise_threshold * 1.5],
-   [0.05, 0.1, 0.3, 1.0])
+   [0.02, 0.05, 0.15, 0.8])
   
   final_alpha = float(np.clip(base_alpha * damping_factor, 0.0, 1.0))
   
