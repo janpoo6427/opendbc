@@ -98,12 +98,12 @@ def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: floa
   
   # 2. [검증 완료] 속도 기반 노이즈 임계값
   # 저속(0~5m/s)에서는 0.15도 이하의 미세 변화에 둔감하게 반응하여 진동 억제
-  noise_threshold = np.interp(v_ego_raw, [0.0, 5.0, 15.0, 30.0], [0.6, 0.4, 0.1, 0.02])
+  noise_threshold = np.interp(v_ego_raw, [0.0, 5.0, 15.0, 30.0], [0.2, 0.15, 0.1, 0.02]) #[0.6, 0.4, 0.1, 0.02])
 
   # 3. Damping Factor
   damping_factor = np.interp(angle_change,
    [0.0, noise_threshold * 0.5, noise_threshold, noise_threshold * 1.5],
-   [0.001, 0.01, 0.1, 1.0])
+   [0.05, 0.1, 0.3, 1.0])
   
   final_alpha = float(np.clip(base_alpha * damping_factor, 0.0, 1.0))
   
@@ -233,11 +233,11 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
       if self.CP.carFingerprint != ANGLE_SAFETY_BASELINE_MODEL:
         apply_angle = apply_steer_angle_limits_vm(apply_angle or desired_angle, self.apply_angle_last, v_ego_raw, CS.out.steeringAngleDeg, CC.latActive,
                                                   self.params, self.BASELINE_VM)
-      #speed_factor = np.interp(v_ego_raw, 
-      #                         [0.0, 5.0, 10.0, 20.0], 
-      #                         [1.0, 0.8, 0.6, 0.4])
+      speed_factor = np.interp(v_ego_raw, 
+                              [0.0, 5.0, 10.0, 20.0], 
+                              [1.0, 0.8, 0.6, 0.4])
 
-      current_active_torque = self.params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN # * speed_factor
+      current_active_torque = self.params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN * speed_factor
       # Use saturation-based torque reduction gain
       target_torque_reduction_gain = self.angle_torque_reduction_gain_controller.update(
         last_requested_angle=self.apply_angle_last,
