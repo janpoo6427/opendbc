@@ -164,8 +164,8 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
 
     self._params = Params() if PARAMS_AVAILABLE else None
     if PARAMS_AVAILABLE:
-      self.params.ANGLE_MIN_TORQUE_REDUCTION_GAIN = parse_tq_rdc_gain(
-        self._params.get("HkgTuningAngleMinTorqueReductionGain")) or self.params.ANGLE_MIN_TORQUE_REDUCTION_GAIN
+      self.params.ANGLE_MIN_TORQUE_REDUCTION_GAIN = max(0.1, parse_tq_rdc_gain(
+        self._params.get("HkgTuningAngleMinTorqueReductionGain")) or self.params.ANGLE_MIN_TORQUE_REDUCTION_GAIN)
 
       self.params.ANGLE_MAX_TORQUE_REDUCTION_GAIN = parse_tq_rdc_gain(
         self._params.get("HkgTuningAngleMaxTorqueReductionGain")) or self.params.ANGLE_MAX_TORQUE_REDUCTION_GAIN
@@ -250,8 +250,7 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
         apply_angle = CS.out.steeringAngleDeg
         apply_steer_req = False
 
-
-      if self.angle_enable_smoothing_factor and abs(v_ego_raw) < CarControllerParams.SMOOTHING_ANGLE_MAX_VEGO:
+      if apply_steer_req and self.angle_enable_smoothing_factor and abs(v_ego_raw) < CarControllerParams.SMOOTHING_ANGLE_MAX_VEGO:
         apply_angle = sp_smooth_angle(v_ego_raw, apply_angle, self.apply_angle_last)
       # After we've used the last angle wherever we needed it, we now update it.
       self.apply_angle_last = apply_angle
