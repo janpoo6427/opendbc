@@ -88,23 +88,12 @@ def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: floa
     float: Smoothed steering angle.
   """
   # 1. 속도 기반 기본 스무딩 계수 산출 (저속=낮음, 고속=높음)
-  base_alpha = np.interp(v_ego_raw, 
+  alpha = np.interp(v_ego_raw, 
                           CarControllerParams.SMOOTHING_ANGLE_VEGO_MATRIX, 
                           CarControllerParams.SMOOTHING_ANGLE_ALPHA_MATRIX)
-  
-  # 2. 이번 프레임의 조향 변화량 계산
-  angle_diff = abs(apply_angle - apply_angle_last)
-  
-  # 3. 조향 크기에 따른 동적 알파값 보간 (반응성 부스트)
-  # - 0.5도 이하 미세 조향: base_alpha 유지 (노이즈 및 잔진동 완벽 필터링)
-  # - 1.5도 이상 큰 조향 및 복귀: alpha를 1.0으로 상향 (빠르고 즉각적인 반응)
-  final_alpha = np.interp(angle_diff, [0.5, 1.5], [base_alpha, 1.0]) # 1 값을 줄이면 바로 보내지 않고 스무딩 처리함
-  #final_alpha = np.interp(angle_diff, [0.8, 2.0], [base_alpha, 0.8]) # angle-diff 각도가 커지면 조향각 전/후의 차이를 크게 커버함
-  # 4. 안전 상한선(1.0) 적용 및 최종 1차 지연(EMA) 필터링
-  final_alpha = min(float(final_alpha), 1.0)
-  
-  return (apply_angle * final_alpha) + (apply_angle_last * (1.0 - final_alpha))
-  #return apply_angle
+  alpha = float(np.clip(alpha, 0.15, 1.0))
+  #3. 우직하고 일관된 1차 지연(EMA) 필터링
+  return (apply_angle * alpha) + (apply_angle_last * (1.0 - alpha))
 
 
 def process_hud_alert(enabled, fingerprint, hud_control):
