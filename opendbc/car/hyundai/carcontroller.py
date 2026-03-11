@@ -87,13 +87,34 @@ def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: floa
   Returns:
     float: Smoothed steering angle.
   """
-  # 1. 속도 기반 기본 스무딩 계수 산출 (저속=낮음, 고속=높음)
-  alpha = np.interp(v_ego_raw, 
-                          CarControllerParams.SMOOTHING_ANGLE_VEGO_MATRIX, 
-                          CarControllerParams.SMOOTHING_ANGLE_ALPHA_MATRIX)
-  alpha = float(np.clip(alpha, 0.15, 1.0))
-  #3. 우직하고 일관된 1차 지연(EMA) 필터링
-  return (apply_angle * alpha) + (apply_angle_last * (1.0 - alpha))
+  # 1. 속도 기반 기본 스무딩 계수 (가장 강한 필터)
+  base_alpha = float(np.interp(v_ego_raw, 
+                               CarControllerParams.SMOOTHING_ANGLE_VEGO_MATRIX, 
+                               CarControllerParams.SMOOTHING_ANGLE_ALPHA_MATRIX))
+  
+  # 2. 중심으로부터의 '절대 거리' (위치)
+  angle_mag = abs(apply_angle)
+  
+  # 3. 중심으로부터 멀어지는/가까워지는 '변화율' (속도)
+  # 양수: 멀어짐(조향 진입) / 음수: 가까워짐(조향 복귀)
+  mag_diff = angle_mag - abs(apply_angle_last)
+  
+  # 4. 우아한 수학적 결합
+  # - math.tanh: 꺾인 각도가 클수록 댐핑을 부드럽게 풀어주는 S-Curve (최대 0.4 한계)
+  # - math.exp: 방향에 따라 실시간으로 반응성을 가감하는 동적 가중치 (복귀=1.2배 가속, 진입=0.8배 감쇠)
+  # [계수 1: 최대 응답성] - 높이면 민첩해짐, 낮추면 큰 조향 소음 억제
+  max_alpha = max(base_alpha, 0.4) 
+  # [계수 2: S-Curve 민감도] - 줄이면(예: 5.0) 더 작은 각도에서도 빠르게 반응
+  position_boost = math.tanh(angle_mag / 10.0) 
+  # [계수 3: 능동 복원 가속도] - 절댓값을 키울수록(예: 8.0) 제자리 복귀가 빨라짐
+  velocity_modifier = math.exp(-4.0 * mag_diff) 
+  
+  final_alpha = base_alpha + ((max_alpha - base_alpha) * position_boost * velocity_modifier)
+  
+  # 5. 안전 상/하한선 클리핑 및 1차 지연(EMA) 통과
+  # [계수 4: 최소 직진 댐핑] - 낮추면(예: 0.08)   직진 소음/잔진동 강력 억제
+  final_alpha = float(np.clip(final_alpha, 0.15, max_alpha)) 
+  return (apply_angle * final_alpha) + (apply_angle_last * (1.0 - final_alpha))
 
 
 def process_hud_alert(enabled, fingerprint, hud_control):
