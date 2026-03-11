@@ -103,17 +103,17 @@ def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: floa
   # - math.tanh: 꺾인 각도가 클수록 댐핑을 부드럽게 풀어주는 S-Curve (최대 0.4 한계)
   # - math.exp: 방향에 따라 실시간으로 반응성을 가감하는 동적 가중치 (복귀=1.2배 가속, 진입=0.8배 감쇠)
   # [계수 1: 최대 응답성] - 높이면 민첩해짐, 낮추면 큰 조향 소음 억제
-  max_alpha = max(base_alpha, 0.4) 
+  max_alpha = max(base_alpha, 0.28) #0.4) 
   # [계수 2: S-Curve 민감도] - 줄이면(예: 5.0) 더 작은 각도에서도 빠르게 반응
-  position_boost = math.tanh(angle_mag / 10.0) 
+  position_boost = math.tanh(angle_mag / 15.0) #10.0) 
   # [계수 3: 능동 복원 가속도] - 절댓값을 키울수록(예: 8.0) 제자리 복귀가 빨라짐
-  velocity_modifier = math.exp(-4.0 * mag_diff) 
+  velocity_modifier = math.exp(-1.5 * mag_diff)  #-4.0
   
   final_alpha = base_alpha + ((max_alpha - base_alpha) * position_boost * velocity_modifier)
   
   # 5. 안전 상/하한선 클리핑 및 1차 지연(EMA) 통과
   # [계수 4: 최소 직진 댐핑] - 낮추면(예: 0.08)   직진 소음/잔진동 강력 억제
-  final_alpha = float(np.clip(final_alpha, 0.15, max_alpha)) 
+  final_alpha = float(np.clip(final_alpha, 0.08, max_alpha)) #0.15 
   return (apply_angle * final_alpha) + (apply_angle_last * (1.0 - final_alpha))
 
 
