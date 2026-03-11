@@ -87,33 +87,28 @@ def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: floa
   Returns:
     float: Smoothed steering angle.
   """
-  # 1. 속도 기반 기본 스무딩 계수 (가장 강한 필터)
+  #1. 이번 프레임의 조향 오차(Error)
+  error = abs(apply_angle - apply_angle_last)
+  #2. 속도 기반 기본 하한선 (너무 잠기지 않게 최소 0.08 보장)
   base_alpha = float(np.interp(v_ego_raw, 
                                CarControllerParams.SMOOTHING_ANGLE_VEGO_MATRIX, 
                                CarControllerParams.SMOOTHING_ANGLE_ALPHA_MATRIX))
+  base_alpha = max(base_alpha, 0.08)
+  #3. [핵심 1] 속도 비례 탄젠트 민감도 (사용자 아이디어)
+  #- 저속(0m/s): 1.0 (곡선이 완만해져 미세 오차를 무시함)
+  #- 고속(15m/s~): 5.0 (곡선이 가파라져 미세 오차에도 즉각 반응)
+  sensitivity = float(np.interp(v_ego_raw, [0.0, 5.0, 15.0], [1.0, 2.5, 5.0]))
+  #4. [핵심 2] 속도 비례 안전 천장 (저속 소음 최후의 방어막)
+  #20Hz 노이즈 때문에 저속에서는 아무리 크게 꺾여도 35% 이상 필터를 열면 소음이 납니다.
+  #따라서 저속 천장은 0.35로 막고, 고속은 1.0으로 시원하게 엽니다.
+  max_alpha = float(np.interp(v_ego_raw, [0.0, 5.0, 15.0], [0.35, 0.6, 1.0]))
+  max_alpha = max(base_alpha, max_alpha)
+  #5. 우아한 탄젠트(Tanh) 결합
+  #오차에 속도 민감도를 곱한 값을 Tanh에 넣어 동적 가중치(0~1)를 구합니다.
+  boost = math.tanh(error * sensitivity)
+  #6. 최종 알파값 도출
+  final_alpha = base_alpha + (max_alpha - base_alpha) * boost
   
-  # 2. 중심으로부터의 '절대 거리' (위치)
-  angle_mag = abs(apply_angle)
-  
-  # 3. 중심으로부터 멀어지는/가까워지는 '변화율' (속도)
-  # 양수: 멀어짐(조향 진입) / 음수: 가까워짐(조향 복귀)
-  mag_diff = angle_mag - abs(apply_angle_last)
-  
-  # 4. 우아한 수학적 결합
-  # - math.tanh: 꺾인 각도가 클수록 댐핑을 부드럽게 풀어주는 S-Curve (최대 0.4 한계)
-  # - math.exp: 방향에 따라 실시간으로 반응성을 가감하는 동적 가중치 (복귀=1.2배 가속, 진입=0.8배 감쇠)
-  # [계수 1: 최대 응답성] - 높이면 민첩해짐, 낮추면 큰 조향 소음 억제
-  max_alpha = max(base_alpha, 0.28) #0.4) 
-  # [계수 2: S-Curve 민감도] - 줄이면(예: 5.0) 더 작은 각도에서도 빠르게 반응
-  position_boost = math.tanh(angle_mag / 7.0) #15.0) #10.0) 
-  # [계수 3: 능동 복원 가속도] - 절댓값을 키울수록(예: 8.0) 제자리 복귀가 빨라짐
-  velocity_modifier = math.exp(-1.5 * mag_diff)  #-4.0
-  
-  final_alpha = base_alpha + ((max_alpha - base_alpha) * position_boost * velocity_modifier)
-  
-  # 5. 안전 상/하한선 클리핑 및 1차 지연(EMA) 통과
-  # [계수 4: 최소 직진 댐핑] - 낮추면(예: 0.08)   직진 소음/잔진동 강력 억제
-  final_alpha = float(np.clip(final_alpha, 0.08, max_alpha)) #0.15 
   return (apply_angle * final_alpha) + (apply_angle_last * (1.0 - final_alpha))
 
 
