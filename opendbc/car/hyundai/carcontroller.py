@@ -105,7 +105,7 @@ def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: floa
   # [계수 1: 최대 응답성] - 높이면 민첩해짐, 낮추면 큰 조향 소음 억제
   max_alpha = max(base_alpha, 0.28) #0.4) 
   # [계수 2: S-Curve 민감도] - 줄이면(예: 5.0) 더 작은 각도에서도 빠르게 반응
-  position_boost = math.tanh(angle_mag / 15.0) #10.0) 
+  position_boost = math.tanh(angle_mag / 7.0) #15.0) #10.0) 
   # [계수 3: 능동 복원 가속도] - 절댓값을 키울수록(예: 8.0) 제자리 복귀가 빨라짐
   velocity_modifier = math.exp(-1.5 * mag_diff)  #-4.0
   
