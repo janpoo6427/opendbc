@@ -93,15 +93,15 @@ def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: floa
   base_alpha = float(np.interp(v_ego_raw, 
                                CarControllerParams.SMOOTHING_ANGLE_VEGO_MATRIX, 
                                CarControllerParams.SMOOTHING_ANGLE_ALPHA_MATRIX))
-  base_alpha = max(base_alpha, 0.08)
+  base_alpha = max(base_alpha, 0.4)
   #3. [핵심 1] 속도 비례 탄젠트 민감도 (사용자 아이디어)
   #- 저속(0m/s): 1.0 (곡선이 완만해져 미세 오차를 무시함)
   #- 고속(15m/s~): 5.0 (곡선이 가파라져 미세 오차에도 즉각 반응)
-  sensitivity = float(np.interp(v_ego_raw, [0.0, 5.0, 15.0], [1.0, 2.5, 5.0]))
+  sensitivity = float(np.interp(v_ego_raw, [0.0, 5.0, 15.0], [0.3, 2.5, 5.0]))
   #4. [핵심 2] 속도 비례 안전 천장 (저속 소음 최후의 방어막)
   #20Hz 노이즈 때문에 저속에서는 아무리 크게 꺾여도 35% 이상 필터를 열면 소음이 납니다.
   #따라서 저속 천장은 0.35로 막고, 고속은 1.0으로 시원하게 엽니다.
-  max_alpha = float(np.interp(v_ego_raw, [0.0, 5.0, 15.0], [0.35, 0.6, 1.0]))
+  max_alpha = float(np.interp(v_ego_raw, [0.0, 5.0, 15.0], [0.25, 0.6, 1.0]))
   max_alpha = max(base_alpha, max_alpha)
   #5. 우아한 탄젠트(Tanh) 결합
   #오차에 속도 민감도를 곱한 값을 Tanh에 넣어 동적 가중치(0~1)를 구합니다.
