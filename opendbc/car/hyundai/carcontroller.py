@@ -208,15 +208,28 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
       v_ego_raw = CS.out.vEgoRaw
       desired_angle = np.clip(actuators.steeringAngleDeg, -self.params.ANGLE_LIMITS.STEER_ANGLE_MAX, self.params.ANGLE_LIMITS.STEER_ANGLE_MAX)
 
-      if self.angle_enable_smoothing_factor and abs(v_ego_raw) < CarControllerParams.SMOOTHING_ANGLE_MAX_VEGO:
-        desired_angle = sp_smooth_angle(v_ego_raw, desired_angle, self.apply_angle_last)
-
       apply_angle = apply_steer_angle_limits_vm(desired_angle, self.apply_angle_last, v_ego_raw, CS.out.steeringAngleDeg, CC.latActive, self.params, self.VM)
 
       # if we are not the baseline model, we use the baseline model for further limits to prevent a panda block since it is hardcoded for baseline model.
-      if self.CP.carFingerprint != ANGLE_SAFETY_BASELINE_MODEL:
-        apply_angle = apply_steer_angle_limits_vm(apply_angle or desired_angle, self.apply_angle_last, v_ego_raw, CS.out.steeringAngleDeg, CC.latActive,
+      if  apply_angle is not None and self.CP.carFingerprint != ANGLE_SAFETY_BASELINE_MODEL:
+        apply_angle = apply_steer_angle_limits_vm(apply_angle, self.apply_angle_last, v_ego_raw, CS.out.steeringAngleDeg, CC.latActive,
                                                   self.params, self.BASELINE_VM)
+
+
+      # 🚀 [추가할 핵심 코드] 저속 토크 부족(Stick-Slip) 방지 부스트
+      # 0~10m/s(약 36km/h) 이하 저속에서 타이어 마찰력을 이기기 위해 토크를 강제로 끌어올림
+      # 속도가 0일 땐 최소 70%의 힘 보장, 3m/s(약 10km/h)일 땐 40%, 10m/s 이상은 기존 로직 따름
+      #base_active_torque = self.params.ANGLE_ACTIVE_TORQUE_REDUCTION_GAIN
+      
+      # 2. 정지 상태에서 1.0으로 끌어올리기 위한 '가중치(Weight)' 비율을 설정합니다.
+      # 0m/s일 때 100%(1.0) 적용, 3m/s일 때 60% 적용, 10m/s 이상일 때 0% 적용
+      #boost_weight = float(np.interp(abs(v_ego_raw), [0.0, 3.0, 6.0, 10.0], [1.0, 0.6, 0.2, 0.0]))
+      
+      # 3. 기본 토크에 '남은 여유 공간(1.0 - 기본 토크)'을 가중치만큼 곱해서 더해줍니다.
+      # 결과: v=0일 때는 항상 1.0, v=10 이상일 때는 항상 base_active_torque가 됩니다.
+      #low_speed_boost = base_active_torque + ((1.0 - base_active_torque) * boost_weight)
+      
+      #target_torque_reduction_gain = max(target_torque_reduction_gain, low_speed_boost)                                            
 
       # Use saturation-based torque reduction gain
       target_torque_reduction_gain = self.angle_torque_reduction_gain_controller.update(
@@ -237,6 +250,9 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
         apply_angle = CS.out.steeringAngleDeg
         apply_steer_req = False
 
+
+      if self.angle_enable_smoothing_factor and abs(v_ego_raw) < CarControllerParams.SMOOTHING_ANGLE_MAX_VEGO:
+        apply_angle = sp_smooth_angle(v_ego_raw, apply_angle, self.apply_angle_last)
       # After we've used the last angle wherever we needed it, we now update it.
       self.apply_angle_last = apply_angle
 
