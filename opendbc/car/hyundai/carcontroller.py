@@ -87,28 +87,16 @@ def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: floa
   Returns:
     float: Smoothed steering angle.
   """
-  #1. 이번 프레임의 조향 오차(Error)
-  error = abs(apply_angle - apply_angle_last)
-  #2. 속도 기반 기본 하한선 (너무 잠기지 않게 최소 0.08 보장)
+  # 1. 속도 기반 스무딩 계수 
   base_alpha = float(np.interp(v_ego_raw, 
-                               CarControllerParams.SMOOTHING_ANGLE_VEGO_MATRIX, 
-                               CarControllerParams.SMOOTHING_ANGLE_ALPHA_MATRIX))
-  base_alpha = max(base_alpha, 0.4)
-  #3. [핵심 1] 속도 비례 탄젠트 민감도 (사용자 아이디어)
-  #- 저속(0m/s): 1.0 (곡선이 완만해져 미세 오차를 무시함)
-  #- 고속(15m/s~): 5.0 (곡선이 가파라져 미세 오차에도 즉각 반응)
-  sensitivity = float(np.interp(v_ego_raw, [0.0, 5.0, 15.0], [0.3, 2.5, 5.0]))
-  #4. [핵심 2] 속도 비례 안전 천장 (저속 소음 최후의 방어막)
-  #20Hz 노이즈 때문에 저속에서는 아무리 크게 꺾여도 35% 이상 필터를 열면 소음이 납니다.
-  #따라서 저속 천장은 0.35로 막고, 고속은 1.0으로 시원하게 엽니다.
-  max_alpha = float(np.interp(v_ego_raw, [0.0, 5.0, 15.0], [0.25, 0.6, 1.0]))
-  max_alpha = max(base_alpha, max_alpha)
-  #5. 우아한 탄젠트(Tanh) 결합
-  #오차에 속도 민감도를 곱한 값을 Tanh에 넣어 동적 가중치(0~1)를 구합니다.
-  boost = math.tanh(error * sensitivity)
-  #6. 최종 알파값 도출
-  final_alpha = base_alpha + (max_alpha - base_alpha) * boost
+                                CarControllerParams.SMOOTHING_ANGLE_VEGO_MATRIX, 
+                                CarControllerParams.SMOOTHING_ANGLE_ALPHA_MATRIX))
   
+  # 2. EPS 모터의 물리적 한계(0.1도)를 부드럽게 뚫고 가기 위한 최소값 0.15 강제 방어
+  # 이 방어막이 있어야 데드밴드를 뚫고 조향할 때 "덜컥"하는 스틱-슬립 소음이 안 납니다.
+  final_alpha = float(np.clip(base_alpha, 0.15, 1.0))
+  
+  # 3. 1차 지연(EMA) 스무딩
   return (apply_angle * final_alpha) + (apply_angle_last * (1.0 - final_alpha))
 
 
@@ -225,6 +213,16 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
     else:
       v_ego_raw = CS.out.vEgoRaw
       desired_angle = np.clip(actuators.steeringAngleDeg, -self.params.ANGLE_LIMITS.STEER_ANGLE_MAX, self.params.ANGLE_LIMITS.STEER_ANGLE_MAX)
+
+      # ---------------------------------------------------------
+      # 🚨 [핵심] 속도 비례 동적 데드밴드 (Dynamic Deadband)
+      # - 0~5m/s (약 0~18km/h): 0.3도로 묶어 기어 털림(따르르르) 소음 완벽 차단
+      # - 5~15m/s (약 18~54km/h): 0.3도에서 0.0도로 아주 부드럽게 감소
+      # - 15m/s 이상 (고속 주행): 데드밴드 0.0도 -> 모든 미세 조향을 100% 허용하여 칼같은 차선 유지
+      dynamic_deadband = float(np.interp(v_ego_raw, [0.0, 5.0, 15.0], [0.3, 0.3, 0.0]))
+      
+      if abs(desired_angle - self.apply_angle_last) < dynamic_deadband:
+          desired_angle = self.apply_angle_last
 
       apply_angle = apply_steer_angle_limits_vm(desired_angle, self.apply_angle_last, v_ego_raw, CS.out.steeringAngleDeg, CC.latActive, self.params, self.VM)
 
