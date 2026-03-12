@@ -219,7 +219,7 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
       # - 0~5m/s (약 0~18km/h): 0.3도로 묶어 기어 털림(따르르르) 소음 완벽 차단
       # - 5~15m/s (약 18~54km/h): 0.3도에서 0.0도로 아주 부드럽게 감소
       # - 15m/s 이상 (고속 주행): 데드밴드 0.0도 -> 모든 미세 조향을 100% 허용하여 칼같은 차선 유지
-      dynamic_deadband = float(np.interp(v_ego_raw, [0.0, 5.0, 15.0], [0.3, 0.3, 0.0]))
+      dynamic_deadband = float(np.interp(v_ego_raw, [0.0, 5.0, 15.0], [0.8, 0.3, 0.0]))
       
       if abs(desired_angle - self.apply_angle_last) < dynamic_deadband:
           desired_angle = self.apply_angle_last
