@@ -48,7 +48,8 @@ def compute_torque_reduction_gain(steering_torque, v_ego_kph, lat_active, last_g
     #base_ceiling = np.interp(v_ego_kph, [0, 20, 40, 120], [0.25, 0.45, 0.70, 1.0]) #2
     #base_ceiling = np.interp(v_ego_kph, [0, 20, 40, 120], [0.22, 0.40, 0.65, 1.0]) #3
     #base_ceiling = np.interp(v_ego_kph, [0, 20, 40, 120], [0.20, 0.36, 0.60, 1.0]) #4 #5 #6 #7
-    base_ceiling = np.interp(v_ego_kph, [0, 20, 40, 120], [0.18, 0.32, 0.56, 1.0]) #8
+    #base_ceiling = np.interp(v_ego_kph, [0, 20, 40, 120], [0.18, 0.32, 0.56, 1.0]) #8
+    base_ceiling = np.interp(v_ego_kph, [0, 20, 40, 120], [0.16, 0.28, 0.50, 1.0]) #9
 
 
 
@@ -57,7 +58,8 @@ def compute_torque_reduction_gain(steering_torque, v_ego_kph, lat_active, last_g
     #error_start = np.interp(v_ego_kph, [0, 20, 40, 120], [2.5, 1.2, 0.6, 0.2]) #2
     #error_start = np.interp(v_ego_kph, [0, 20, 40, 120], [3.0, 1.4, 0.7, 0.2]) #3 
     #error_start = np.interp(v_ego_kph, [0, 20, 40, 120], [3.5, 1.8, 0.8, 0.25]) #4 #5 #6 #7
-    error_start = np.interp(v_ego_kph, [0, 20, 40, 120], [4.0, 2.0, 0.9, 0.25]) #8
+    #error_start = np.interp(v_ego_kph, [0, 20, 40, 120], [4.0, 2.0, 0.9, 0.25]) #8
+    error_start = np.interp(v_ego_kph, [0, 20, 40, 120], [4.5, 2.2, 1.0, 0.30]) #9
 
 
     #error_mult = np.interp(abs(steering_error), [error_start, error_start*2], [1.0, 2]) #1
@@ -65,7 +67,8 @@ def compute_torque_reduction_gain(steering_torque, v_ego_kph, lat_active, last_g
     #error_mult = np.interp(abs(steering_error), [error_start, error_start * 3.5], [1.0, 1.12]) #3
     #error_mult = np.interp(abs(steering_error), [error_start, error_start * 4.0], [1.0, 1.08]) #4
     #error_mult = np.interp(abs(steering_error), [error_start, error_start * 4.5], [1.0, 1.05]) #5 #6 #7
-    error_mult = np.interp(abs(steering_error), [error_start, error_start * 5.0], [1.0, 1.03]) #8
+    #error_mult = np.interp(abs(steering_error), [error_start, error_start * 5.0], [1.0, 1.03]) #8
+    error_mult = np.interp(abs(steering_error), [error_start, error_start * 6.0], [1.0, 1.01]) #9
 
 
     dynamic_ceiling = min(1.0, base_ceiling * error_mult)
@@ -75,8 +78,10 @@ def compute_torque_reduction_gain(steering_torque, v_ego_kph, lat_active, last_g
     #target = np.interp(abs(steering_torque), [140, 420], [dynamic_ceiling, 0.10]) #2 
     #target = np.interp(abs(steering_torque), [140, 420], [dynamic_ceiling, 0.08]) #3
     #target = np.interp(abs(steering_torque), [140, 420], [dynamic_ceiling, 0.06]) #4 #5 #6
-    # target = np.interp(abs(steering_torque), [140, 420], [dynamic_ceiling, 0.05]) #7
-    target = np.interp(abs(steering_torque), [140, 420], [dynamic_ceiling, 0.045]) #8
+    #target = np.interp(abs(steering_torque), [140, 420], [dynamic_ceiling, 0.05]) #7
+    #target = np.interp(abs(steering_torque), [140, 420], [dynamic_ceiling, 0.045]) #8
+    target = np.interp(abs(steering_torque), [140, 420], [dynamic_ceiling, 0.040]) #9
+
 
 
   else:
@@ -88,7 +93,9 @@ def compute_torque_reduction_gain(steering_torque, v_ego_kph, lat_active, last_g
   #rate_dn = np.interp(abs(steering_torque), [0, 300, 700], [0.0015, 0.004, 0.015]) #3
   #rate_dn = np.interp(abs(steering_torque), [0, 300, 700], [0.001, 0.003, 0.012]) #4 #5
   #rate_dn = np.interp(abs(steering_torque), [0, 300, 700], [0.0008, 0.0025, 0.010]) #6 #7
-  rate_dn = np.interp(abs(steering_torque), [0, 300, 700], [0.0006, 0.0020, 0.0080]) #8
+  #rate_dn = np.interp(abs(steering_torque), [0, 300, 700], [0.0006, 0.0020, 0.0080]) #8
+  rate_dn = np.interp(abs(steering_torque), [0, 300, 700], [0.0004, 0.0015, 0.0060]) #9
+
 
 
   gain = last_gain + max(-rate_dn, min(0.004, delta))
