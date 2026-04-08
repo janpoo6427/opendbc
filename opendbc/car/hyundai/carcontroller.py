@@ -82,8 +82,8 @@ def compute_torque_reduction_gain(steering_torque, v_ego_kph, lat_active, last_g
   #rate_dn = np.interp(abs(steering_torque), [0, 300, 700], [0.004, 0.01, 0.04]) #1
   #rate_dn = np.interp(abs(steering_torque), [0, 300, 700], [0.002, 0.005, 0.02]) #2
   #rate_dn = np.interp(abs(steering_torque), [0, 300, 700], [0.0015, 0.004, 0.015]) #3
-  rate_dn = np.interp(abs(steering_torque), [0, 300, 700], [0.001, 0.003, 0.012]) #4 #5
-  #rate_dn = np.interp(abs(steering_torque), [0, 300, 700], [0.0008, 0.0025, 0.010]) #6 #7
+  #rate_dn = np.interp(abs(steering_torque), [0, 300, 700], [0.001, 0.003, 0.012]) #4 #5
+  rate_dn = np.interp(abs(steering_torque), [0, 300, 700], [0.0008, 0.0025, 0.010]) #6 #7
 
 
   gain = last_gain + max(-rate_dn, min(0.004, delta))
