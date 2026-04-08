@@ -71,8 +71,8 @@ def compute_torque_reduction_gain(steering_torque, v_ego_kph, lat_active, last_g
     #target = np.interp(abs(steering_torque), [140, 420], [dynamic_ceiling, 0.19]) #1
     #target = np.interp(abs(steering_torque), [140, 420], [dynamic_ceiling, 0.10]) #2 
     #target = np.interp(abs(steering_torque), [140, 420], [dynamic_ceiling, 0.08]) #3
-    target = np.interp(abs(steering_torque), [140, 420], [dynamic_ceiling, 0.06]) #4 #5 #6
-    #target = np.interp(abs(steering_torque), [140, 420], [dynamic_ceiling, 0.05]) #7
+    #target = np.interp(abs(steering_torque), [140, 420], [dynamic_ceiling, 0.06]) #4 #5 #6
+    target = np.interp(abs(steering_torque), [140, 420], [dynamic_ceiling, 0.05]) #7
 
 
   else:
