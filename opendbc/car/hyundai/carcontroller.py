@@ -98,8 +98,8 @@ def compute_torque_reduction_gain(steering_torque, v_ego_kph, lat_active, last_g
 
 
 
-  gain = last_gain + max(-rate_dn, min(0.004, delta))
-  return round(gain / 0.004) * 0.004
+  gain = last_gain + max(-rate_dn, min(0.002, delta))
+  return round(gain / 0.002) * 0.002
 
 
 def sp_smooth_angle(v_ego_raw: float, apply_angle: float, apply_angle_last: float) -> float:
